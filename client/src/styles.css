@@ -240,3 +240,9 @@ table.perm td:not(:first-child), table.perm th:not(:first-child) { text-align: c
 .day-strip { margin-bottom: 14px; }
 .link { color: var(--red); font-weight: 600; }
 @media (max-width: 700px) { .chart-grid { grid-template-columns: 1fr; } }
+.chart-box .hit.sel { fill: rgba(42, 120, 214, .10); }
+.filter-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.filter-row .search { flex: 1 1 240px; width: auto; }
+.filter-row select { width: auto; min-width: 180px; }
+.modal-legend { margin-bottom: 6px; }
+.modal.wide { max-width: 820px; }
