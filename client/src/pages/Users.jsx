@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, fmtDate } from "../api.js";
-import { PageHeader, Alert, Modal, Status } from "../components/ui.jsx";
+import { PageHeader, Alert, Modal } from "../components/ui.jsx";
 import Icon from "../components/Icon.jsx";
 
 export default function Users({ user }) {
@@ -23,39 +23,38 @@ export default function Users({ user }) {
     const pw = window.prompt(`New password for ${u.full_name} (at least 8 characters):`);
     if (pw) update(u, { password: pw }, "Password reset.");
   };
+  const initials = (n) => n.split(" ").map((x) => x[0]).slice(0, 2).join("").toUpperCase();
+  const toggleActive = (u) => update(u, { status: u.status === "active" ? "inactive" : "active" }, `${u.full_name} is now ${u.status === "active" ? "inactive" : "active"}.`);
   return (
     <>
-      <PageHeader title="User Accounts & Roles" subtitle="Who can log in to IPTAS and what they can do.">
+      <PageHeader title="User Accounts" subtitle="Who can log in to IPTAS.">
         <button className="btn primary" onClick={() => setAdd(true)}><Icon name="plus" /> Add user</button>
       </PageHeader>
       <Alert>{err}</Alert><Alert kind="success">{msg}</Alert>
-      <section className="card flush"><div className="table-wrap"><table>
-        <colgroup><col style={{ width: "20%" }} /><col /><col style={{ width: "15%" }} /><col style={{ width: "10%" }} /><col style={{ width: "13%" }} /><col style={{ width: "24%" }} /></colgroup>
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
-        <tbody>{rows.map((u) => (
-          <tr key={u.user_id}>
-            <td><strong>{u.full_name}</strong>{u.user_id === user.user_id && <span className="tiny muted"> (you)</span>}</td>
-            <td>{u.email}</td>
-            <td>{u.role === "owner" ? "Business Owner" : "Administrator"}</td>
-            <td><Status value={u.status} /></td>
-            <td>{fmtDate(u.created_at)}</td>
-            <td className="btn-row">
-              {u.user_id !== user.user_id && <button className="btn ghost small" onClick={() => update(u, { status: u.status === "active" ? "inactive" : "active" }, `${u.full_name} is now ${u.status === "active" ? "inactive" : "active"}.`)}>{u.status === "active" ? "Deactivate" : "Activate"}</button>}
-              <button className="btn ghost small" onClick={() => reset(u)}>Reset password</button>
-            </td>
-          </tr>))}</tbody>
-      </table></div></section>
-      <section className="card">
-        <h3>Role permissions</h3>
-        <div className="table-wrap"><table className="perm">
-          <colgroup><col /><col style={{ width: "18%" }} /><col style={{ width: "18%" }} /></colgroup>
-          <thead><tr><th>Function</th><th>Administrator</th><th>Business Owner</th></tr></thead>
-          <tbody>
-            {[["Employee records, time-log sync, compute payroll, dashboard, reports", true, true], ["Configure pay rules", false, true], ["Approve payroll", false, true], ["Manage user accounts", false, true], ["View audit trail & settings", false, true]]
-              .map(([a, b, c]) => <tr key={a}><td>{a}</td><td>{b ? "✓" : "–"}</td><td>{c ? "✓" : "–"}</td></tr>)}
-          </tbody>
-        </table></div>
+      <section className="card flush">
+        <ul className="user-list">
+          {rows.map((u) => (
+            <li key={u.user_id} className={u.status !== "active" ? "off" : ""} title={`Created ${fmtDate(u.created_at)}`}>
+              <span className="avatar-sm">{initials(u.full_name)}</span>
+              <span className="who-cell"><strong>{u.full_name}</strong>{u.user_id === user.user_id && <span className="you">You</span>}<span className="tiny muted">{u.email}</span></span>
+              <span className="role-cell">{u.role === "owner" ? "Business Owner" : "Administrator"}</span>
+              <span className={"dot-status " + u.status}>{u.status === "active" ? "Active" : "Inactive"}</span>
+              <span className="row-actions">
+                <button className="text-btn" onClick={() => reset(u)}>Reset password</button>
+                {u.user_id !== user.user_id && <button className={"text-btn" + (u.status === "active" ? " danger" : "")} onClick={() => toggleActive(u)}>{u.status === "active" ? "Deactivate" : "Activate"}</button>}
+              </span>
+            </li>
+          ))}
+        </ul>
       </section>
+      <details className="card how">
+        <summary>What each role can do</summary>
+        <ul>
+          <li><strong>Administrator</strong> – employees, time logs, compute payroll, dashboard and reports.</li>
+          <li><strong>Business Owner</strong> – everything above, plus pay rules, approving payroll, user accounts, audit trail and settings.</li>
+        </ul>
+        <p className="tiny muted">Deactivated accounts are signed out right away and cannot log in.</p>
+      </details>
       {add && (
         <Modal title="Add user" onClose={() => setAdd(false)}>
           <form className="form" onSubmit={create}>
