@@ -111,10 +111,14 @@ async function pickWorkspace(key) {
   return { me, ws, workspaces };
 }
 
+// Clockify's own demo people ("[SAMPLE] Amy Smith", ...@clockify-test.com) are not real workers
+const isClockifySample = (u) => /@clockify-test\.com$/i.test(u.email || "") || /^\[SAMPLE\]/i.test(u.name || "");
+
 // Workspace members. Listing them needs a workspace admin key; otherwise only the key owner is synced.
 async function workspaceUsers(key, ws, me) {
   try {
-    return { users: await clockifyGetAll(`/workspaces/${ws}/users`, key), adminAccess: true };
+    const users = await clockifyGetAll(`/workspaces/${ws}/users`, key);
+    return { users: users.filter((u) => !isClockifySample(u)), adminAccess: true };
   } catch (e) {
     if (e.status === 403) return { users: [{ id: me.id, email: me.email, name: me.name }], adminAccess: false };
     throw e;
