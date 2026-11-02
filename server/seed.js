@@ -46,7 +46,7 @@ async function seedIfEmpty() {
 
   await db.query(
     `INSERT INTO pay_rules (rule_name, overtime_threshold, overtime_multiplier, cpp_rate, ei_rate, effective_date)
-     VALUES ('Standard 2026', 40, 1.5, 0.0595, 0.0164, '2026-01-01')`);
+     VALUES ('Standard 2026', 6, 1.5, 0.0595, 0.0164, '2026-01-01')`);
 
   const emps = [
     ["demo-u01", "Liam Tremblay", "liam.tremblay@example.com", "hourly", 22.5, "CAD", true, "2026-03-02"],

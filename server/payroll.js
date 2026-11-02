@@ -2,33 +2,27 @@
 
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
-// Monday-based week key for a YYYY-MM-DD date string
-function weekKey(dateStr) {
-  const d = new Date(dateStr + "T00:00:00Z");
-  const day = (d.getUTCDay() + 6) % 7; // 0 = Monday
-  d.setUTCDate(d.getUTCDate() - day);
-  return d.toISOString().slice(0, 10);
-}
+const WORKDAYS_PER_PERIOD = 10; // a two-week pay period has 10 working days (Mon-Fri)
 
 /**
- * Split hours into regular and overtime using a weekly threshold.
+ * Daily overtime: on each day, the first `threshold` hours (6 by default) are regular and the rest is overtime.
  * logs: [{ work_date: 'YYYY-MM-DD', hours_worked: number }]
+ * Returns one row per day: { work_date, hours, regular, overtime }, oldest first.
  */
+function dailyTotals(logs, threshold, overtimeEligible) {
+  const days = {};
+  for (const l of logs) days[l.work_date] = (days[l.work_date] || 0) + Number(l.hours_worked);
+  return Object.keys(days).sort().map((d) => {
+    const h = round2(days[d]);
+    const regular = overtimeEligible ? Math.min(h, threshold) : h;
+    return { work_date: d, hours: h, regular: round2(regular), overtime: round2(h - regular) };
+  });
+}
+
+// Total regular and overtime hours for a pay period (sum of the daily split)
 function splitHours(logs, threshold, overtimeEligible) {
-  const weeks = {};
-  for (const l of logs) {
-    const k = weekKey(l.work_date);
-    weeks[k] = (weeks[k] || 0) + Number(l.hours_worked);
-  }
   let regular = 0, overtime = 0;
-  for (const h of Object.values(weeks)) {
-    if (overtimeEligible && h > threshold) {
-      regular += threshold;
-      overtime += h - threshold;
-    } else {
-      regular += h;
-    }
-  }
+  for (const d of dailyTotals(logs, threshold, overtimeEligible)) { regular += d.regular; overtime += d.overtime; }
   return { regular: round2(regular), overtime: round2(overtime), total: round2(regular + overtime) };
 }
 
@@ -38,10 +32,10 @@ const hasCanadianDeductions = (employee) => employee.currency === "CAD";
 /**
  * Compute one employee's pay for one pay period.
  * employee: { employment_type, pay_rate, currency, overtime_eligible }
- * rule:     { overtime_threshold, overtime_multiplier, cpp_rate, ei_rate }
+ * rule:     { overtime_threshold (hours per day), overtime_multiplier, cpp_rate, ei_rate }
  * fxRate:   USD to CAD rate used for this payroll (only applied to USD employees)
  * For fixed employees, pay_rate is the amount per pay period; overtime (if eligible) is paid at
- * the equivalent hourly rate = pay_rate / (threshold * 2 weeks).
+ * the equivalent hourly rate = pay_rate / (threshold hours x 10 working days).
  */
 function computePay(employee, logs, rule, fxRate = 1) {
   const threshold = Number(rule.overtime_threshold);
@@ -53,7 +47,7 @@ function computePay(employee, logs, rule, fxRate = 1) {
   if (employee.employment_type === "hourly") {
     gross = regular * rate + overtime * rate * mult;
   } else {
-    const hourlyEquivalent = rate / (threshold * 2);
+    const hourlyEquivalent = rate / (threshold * WORKDAYS_PER_PERIOD);
     gross = rate + overtime * hourlyEquivalent * mult;
   }
   gross = round2(gross);
@@ -77,4 +71,4 @@ function computePay(employee, logs, rule, fxRate = 1) {
   };
 }
 
-module.exports = { computePay, splitHours, weekKey, round2, hasCanadianDeductions };
+module.exports = { computePay, splitHours, dailyTotals, round2, hasCanadianDeductions };

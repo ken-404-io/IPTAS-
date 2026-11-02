@@ -7,7 +7,7 @@ const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 const db = require("./db");
 const { migrate, seedIfEmpty, ensurePayPeriods } = require("./seed");
-const { computePay } = require("./payroll");
+const { computePay, dailyTotals } = require("./payroll");
 const { verifyGoogleToken, GoogleAuthError } = require("./google");
 const { config } = require("./config");
 const { syncTimeLogs, testConnection, getApiKey, getTimezone, demoModeOn, ClockifyError, SOURCE_SQL } = require("./timetracker");
@@ -220,10 +220,28 @@ app.get("/api/timelogs", auth, wrap(async (req, res) => {
   let where = "t.work_date BETWEEN $1 AND $2";
   if (employee_id) { params.push(employee_id); where += " AND t.employee_id=$3"; }
   const { rows } = await db.query(
-    `SELECT t.*, ${SOURCE_SQL} AS source, e.full_name FROM time_logs t JOIN employees e ON e.employee_id=t.employee_id
+    `SELECT t.*, ${SOURCE_SQL} AS source, e.full_name, e.overtime_eligible FROM time_logs t JOIN employees e ON e.employee_id=t.employee_id
       WHERE ${where} ORDER BY t.work_date DESC, e.full_name`, params);
+  // Daily totals per employee: first overtime_threshold hours of a day are regular, the rest is overtime
+  const rule = await ruleFor(p.end_date);
+  const threshold = Number(rule?.overtime_threshold || 6);
+  const byEmp = new Map();
+  for (const l of rows) {
+    if (!byEmp.has(l.employee_id)) byEmp.set(l.employee_id, { name: l.full_name, eligible: l.overtime_eligible, logs: [] });
+    byEmp.get(l.employee_id).logs.push({ ...l, work_date: String(l.work_date).slice(0, 10) });
+  }
+  const daily = [];
+  for (const [employee_id, e] of byEmp) {
+    for (const d of dailyTotals(e.logs, threshold, e.eligible)) {
+      const entries = e.logs.filter((l) => l.work_date === d.work_date)
+        .map((l) => ({ log_id: l.log_id, start_time: l.start_time, end_time: l.end_time, hours: Number(l.hours_worked), source: l.source }))
+        .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
+      daily.push({ employee_id, full_name: e.name, ...d, entries });
+    }
+  }
+  daily.sort((a, b) => b.work_date.localeCompare(a.work_date) || a.full_name.localeCompare(b.full_name));
   res.json({
-    period: p, logs: rows, last_sync: await lastSync(),
+    period: p, logs: rows, daily, overtime_threshold: threshold, last_sync: await lastSync(),
     timezone: await getTimezone(), clockify_connected: !!(await getApiKey()), demo_mode: await demoModeOn(),
   });
 }));
@@ -297,7 +315,8 @@ app.post("/api/rules", auth, ownerOnly, wrap(async (req, res) => {
   const b = req.body || {};
   const nums = ["overtime_threshold", "overtime_multiplier", "cpp_rate", "ei_rate"];
   for (const n of nums) if (!(Number(b[n]) >= 0)) return bad(res, `Please enter a valid value for ${n.replace(/_/g, " ")}.`);
-  if (Number(b.overtime_threshold) <= 0 || Number(b.overtime_multiplier) < 1) return bad(res, "Overtime threshold must be above 0 and multiplier at least 1.");
+  if (Number(b.overtime_threshold) <= 0 || Number(b.overtime_threshold) > 24 || Number(b.overtime_multiplier) < 1)
+    return bad(res, "Overtime starts after 1 to 24 hours a day, and the multiplier must be at least 1.");
   if (Number(b.cpp_rate) > 0.2 || Number(b.ei_rate) > 0.2) return bad(res, "Enter CPP and EI rates as decimals (e.g. 0.0595 for 5.95%).");
   const { rows } = await db.query(
     `INSERT INTO pay_rules (rule_name, overtime_threshold, overtime_multiplier, cpp_rate, ei_rate, effective_date)

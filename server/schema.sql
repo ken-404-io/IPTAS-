@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS pay_periods (
 CREATE TABLE IF NOT EXISTS pay_rules (
   rule_id             SERIAL PRIMARY KEY,
   rule_name           VARCHAR(50) NOT NULL,
-  overtime_threshold  NUMERIC(5,2) NOT NULL,   -- hours per week before overtime
+  overtime_threshold  NUMERIC(5,2) NOT NULL,   -- hours per day before overtime (default 6)
   overtime_multiplier NUMERIC(3,2) NOT NULL,
   cpp_rate            NUMERIC(5,4) NOT NULL,
   ei_rate             NUMERIC(5,4) NOT NULL,
@@ -123,3 +123,5 @@ END $$;
 DROP TABLE IF EXISTS settings;
 -- Hours come only from the time-tracker (DFD: D3 is written by 3.0 Retrieve & Sync), so old manual entries are removed
 DELETE FROM time_logs WHERE tracker_entry_id LIKE 'manual-%';
+-- Overtime is daily now: a threshold above 24 hours was a weekly value from an earlier version, so it becomes 6 hours a day
+UPDATE pay_rules SET overtime_threshold = 6 WHERE overtime_threshold > 24;
