@@ -244,21 +244,29 @@ async function lastSync() {
 const isDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s + "T00:00:00Z"));
 
 
-app.post("/api/timelogs/sync", auth, wrap(async (req, res) => {
-  const p = (await db.query("SELECT * FROM pay_periods WHERE period_id=$1", [req.body?.period_id])).rows[0];
-  if (!p) return bad(res, "Select a pay period.");
-  if (p.status === "approved") return bad(res, "This pay period is already approved and locked.");
+// Pulls the period's hours from Clockify (process 3.0). Used by "Sync time logs" and automatically by "Compute payroll".
+// Throws ClockifyError (already audit-logged) when the sync fails.
+async function syncPeriod(userId, p) {
   let result;
   try {
     result = await syncTimeLogs(p.start_date, p.end_date);
   } catch (e) {
-    if (!(e instanceof ClockifyError)) throw e;
-    await audit(req.user.user_id, "SYNC_FAILED", "time_logs", p.period_id, null, e.message);
-    return res.status(502).json({ error: "Time-log sync failed: " + e.message });
+    if (e instanceof ClockifyError) await audit(userId, "SYNC_FAILED", "time_logs", p.period_id, null, e.message);
+    throw e;
   }
-  const payroll_reset = await invalidatePayroll(p.period_id);
-  const info = { ...result, payroll_reset, at: new Date().toISOString(), period: `${p.start_date} to ${p.end_date}` };
-  await audit(req.user.user_id, "SYNC_TIME_LOGS", "time_logs", p.period_id, null, info);
+  const info = { ...result, at: new Date().toISOString(), period: `${p.start_date} to ${p.end_date}` };
+  await audit(userId, "SYNC_TIME_LOGS", "time_logs", p.period_id, null, info);
+  return info;
+}
+
+app.post("/api/timelogs/sync", auth, wrap(async (req, res) => {
+  const p = (await db.query("SELECT * FROM pay_periods WHERE period_id=$1", [req.body?.period_id])).rows[0];
+  if (!p) return bad(res, "Select a pay period.");
+  if (p.status === "approved") return bad(res, "This pay period is already approved and locked.");
+  let info;
+  try { info = await syncPeriod(req.user.user_id, p); }
+  catch (e) { if (e instanceof ClockifyError) return res.status(502).json({ error: "Time-log sync failed: " + e.message }); throw e; }
+  info.payroll_reset = await invalidatePayroll(p.period_id);
   res.json(info);
 }));
 
@@ -316,6 +324,12 @@ app.post("/api/payroll/:periodId/compute", auth, wrap(async (req, res) => {
   const rule = await ruleFor(p.end_date);
   const fx = req.body?.fx_rate === undefined || req.body?.fx_rate === "" ? await currentFx() : Number(req.body.fx_rate);
   if (!(fx >= 0.5 && fx <= 5)) return bad(res, "Enter a valid USD to CAD exchange rate (for example 1.37).");
+  // Get the latest hours first, so the payroll always uses what is in Clockify right now
+  let sync = null;
+  if ((await getApiKey()) || (await demoModeOn())) {
+    try { sync = await syncPeriod(req.user.user_id, p); }
+    catch (e) { if (e instanceof ClockifyError) return res.status(502).json({ error: "Could not get the hours from Clockify, so the payroll was not computed: " + e.message }); throw e; }
+  }
   const emps = (await db.query("SELECT * FROM employees WHERE status='active' AND date_hired <= $1", [p.end_date])).rows;
   const client = await db.pool.connect();
   let count = 0;
@@ -340,7 +354,13 @@ app.post("/api/payroll/:periodId/compute", auth, wrap(async (req, res) => {
       // Nothing to pay: leave the period open instead of letting an empty payroll be approved and locked
       await client.query("ROLLBACK");
       await db.query("UPDATE pay_periods SET status='open' WHERE period_id=$1 AND status='computed' AND NOT EXISTS (SELECT 1 FROM payroll WHERE period_id=$1)", [p.period_id]);
-      return bad(res, "No employee has hours in this pay period, so there is nothing to compute. Sync the time logs for this period first, and check that your employees are matched to Clockify users in Settings.");
+      const why = !sync
+        ? "Clockify is not connected (set CLOCKIFY_API_KEY on the server), so no hours could be synced."
+        : `${sync.synced} time entries were found in Clockify between ${p.start_date} and ${p.end_date}.` +
+          (sync.unmatched?.length ? ` Clockify users not matched to any employee: ${sync.unmatched.join(", ")} — add them on the Employees page with the same email.` : "") +
+          (sync.running ? ` ${sync.running} timer(s) are still running; stop them in Clockify first.` : "") +
+          " Check that the hours are in this pay period.";
+      return bad(res, "No employee has hours in this pay period, so there is nothing to compute. " + why);
     }
     await client.query("UPDATE pay_periods SET status='computed' WHERE period_id=$1", [p.period_id]);
     await client.query("COMMIT");
@@ -348,7 +368,7 @@ app.post("/api/payroll/:periodId/compute", auth, wrap(async (req, res) => {
     await client.query("ROLLBACK"); throw e;
   } finally { client.release(); }
   await audit(req.user.user_id, "COMPUTE_PAYROLL", "payroll", p.period_id, null, { period: `${p.start_date} to ${p.end_date}`, employees: count, rule: rule.rule_name, usd_to_cad: fx });
-  res.json({ ok: true, employees: count });
+  res.json({ ok: true, employees: count, sync });
 }));
 
 app.post("/api/payroll/:periodId/approve", auth, ownerOnly, wrap(async (req, res) => {

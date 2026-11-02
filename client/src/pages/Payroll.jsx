@@ -31,7 +31,7 @@ export default function Payroll({ user }) {
     if (what === "approve" && !window.confirm("Approve and lock this payroll? It can no longer be changed after approval.")) return;
     setBusy(what); setErr(""); setMsg("");
     try {
-      if (what === "compute") { const r = await api(`/payroll/${periodId}/compute`, { method: "POST", body: { fx_rate: data?.has_usd ? Number(fx) : undefined } }); setMsg(`Payroll computed for ${r.employees} employees. ${user.role === "owner" ? "Review it, then approve." : "The Business Owner can now review and approve it."}`); }
+      if (what === "compute") { const r = await api(`/payroll/${periodId}/compute`, { method: "POST", body: { fx_rate: data?.has_usd ? Number(fx) : undefined } }); setMsg(`${r.sync ? `Hours synced from ${r.sync.mode === "clockify" ? "Clockify" : "sample data"} (${r.sync.synced} entries). ` : ""}Payroll computed for ${r.employees} employees. ${user.role === "owner" ? "Review it, then approve." : "The Business Owner can now review and approve it."}`); }
       else { await api(`/payroll/${periodId}/approve`, { method: "POST" }); setMsg("Payroll approved and locked."); }
       await load(); await reload(true);
     } catch (e) { setErr(e.message); } finally { setBusy(""); }
@@ -40,13 +40,13 @@ export default function Payroll({ user }) {
   const sum = (k) => items.reduce((a, i) => a + Number(i[k]), 0);
   return (
     <>
-      <PageHeader title="Payroll" subtitle="Compute pay from synced hours and the pay rules, then approve.">
+      <PageHeader title="Payroll" subtitle="Compute gets the latest hours from Clockify, applies the pay rules, then the Owner approves.">
         <PeriodSelect periods={periods} value={periodId} onChange={setPeriodId} />
         {p && p.status !== "approved" && data?.has_usd && (
           <label className="fx-input" title="Exchange rate used to convert USD pay to CAD for this payroll">1 USD =
             <input type="number" step="0.0001" min="0.5" max="5" value={fx} onChange={(e) => setFx(e.target.value)} aria-label="USD to CAD rate" /> CAD</label>
         )}
-        {p && p.status !== "approved" && <button className="btn dark" onClick={() => act("compute")} disabled={!!busy}><Icon name="calc" /> {busy === "compute" ? "Computing…" : p.status === "computed" ? "Recompute" : "Compute payroll"}</button>}
+        {p && p.status !== "approved" && <button className="btn dark" onClick={() => act("compute")} disabled={!!busy}><Icon name="calc" /> {busy === "compute" ? "Syncing & computing…" : p.status === "computed" ? "Recompute" : "Compute payroll"}</button>}
         {p && p.status === "computed" && user.role === "owner" && <button className="btn primary" onClick={() => act("approve")} disabled={!!busy}><Icon name="check" /> {busy === "approve" ? "Approving…" : "Approve payroll"}</button>}
       </PageHeader>
       <Alert>{err}</Alert><Alert kind="success">{msg}</Alert>
@@ -61,7 +61,7 @@ export default function Payroll({ user }) {
       {p?.status === "computed" && user.role !== "owner" && <Alert kind="info">Waiting for the Business Owner to approve this payroll.</Alert>}
       {p?.status === "approved" && <Alert kind="info"><Icon name="lock" size={14} /> Approved and locked. Payslips keep the amounts and the pay rule used.</Alert>}
       <section className="card flush">
-        {!data ? <div className="loading">Loading…</div> : !items.length ? <Empty>No payroll computed for this period yet. Sync the time logs, then click “Compute payroll”.</Empty> : (
+        {!data ? <div className="loading">Loading…</div> : !items.length ? <Empty>No payroll computed for this period yet. Click “Compute payroll” – it gets the hours from Clockify automatically.</Empty> : (
           <div className="table-wrap"><table>
             <thead><tr><th>Employee</th><th className="num">Reg. hrs</th><th className="num">OT hrs</th><th className="num">Gross</th><th className="num">CPP</th><th className="num">EI</th><th className="num">Net pay</th><th className="num">Net (CAD)</th><th /></tr></thead>
             <tbody>{items.map((i) => (
