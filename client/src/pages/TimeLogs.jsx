@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, hrs, fmtDate, fmtDateTime } from "../api.js";
 import { PageHeader, Alert, Empty, PeriodSelect, Status } from "../components/ui.jsx";
 import usePeriods from "../components/usePeriods.js";
@@ -6,6 +6,7 @@ import Icon from "../components/Icon.jsx";
 
 const timeIn = (t, tz) => t ? new Date(t).toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit", timeZone: tz || "UTC" }) : "";
 const SOURCE = { clockify: "Clockify", demo: "Sample" };
+const AUTO_SYNC_MINUTES = 5; // re-sync an open period automatically when its last sync is older than this
 
 function syncMessage(r) {
   const parts = [`Sync complete (${r.mode === "clockify" ? "Clockify API" : "sample data"}): ${r.synced} entries synced`];
@@ -20,20 +21,32 @@ function syncMessage(r) {
 }
 
 export default function TimeLogs() {
-  const { periods, periodId, setPeriodId, period, reload } = usePeriods();
+  const { periods, periodId, setPeriodId, period, reload } = usePeriods({ preferCurrent: true });
+  const autoSynced = useRef(new Set());
   const [data, setData] = useState(null);
   const [msg, setMsg] = useState(""); const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false); const [emp, setEmp] = useState("");
-  const load = () => periodId && api(`/timelogs?period_id=${periodId}`).then(setData).catch((e) => setErr(e.message));
-  useEffect(() => { setData(null); setMsg(""); setErr(""); load(); }, [periodId]);
-  const sync = async () => {
+  const load = () => periodId ? api(`/timelogs?period_id=${periodId}`).then((d) => { setData(d); return d; }).catch((e) => { setErr(e.message); return null; }) : Promise.resolve(null);
+  const sync = async (auto = false) => {
     setBusy(true); setErr(""); setMsg("");
     try {
       const r = await api("/timelogs/sync", { method: "POST", body: { period_id: periodId } });
-      setMsg(syncMessage(r));
+      setMsg((auto ? "Updated from Clockify automatically. " : "") + syncMessage(r));
       await load(); await reload(true);
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
+  // Opening a period that is still open gets its latest hours from Clockify automatically
+  useEffect(() => {
+    setData(null); setMsg(""); setErr("");
+    load().then((d) => {
+      const p = d?.period;
+      if (!d || !p || p.status !== "open" || !d.clockify_connected || autoSynced.current.has(p.period_id)) return;
+      autoSynced.current.add(p.period_id);
+      const fresh = d.last_sync?.mode === "clockify" && d.last_sync.period === `${p.start_date} to ${p.end_date}` &&
+        Date.now() - new Date(d.last_sync.at).getTime() < AUTO_SYNC_MINUTES * 60000;
+      if (!fresh) sync(true);
+    });
+  }, [periodId]);
   const tz = data?.timezone;
   const locked = period?.status === "approved";
   const logs = (data?.logs || []).filter((l) => !emp || String(l.employee_id) === emp);
@@ -42,14 +55,14 @@ export default function TimeLogs() {
   const names = Object.keys(totals).sort();
   return (
     <>
-      <PageHeader title="Time Logs" subtitle="Hours pulled from Clockify through its API.">
+      <PageHeader title="Time Logs" subtitle="Hours are pulled from Clockify automatically when you open a pay period (and every 30 minutes on the server).">
         <PeriodSelect periods={periods} value={periodId} onChange={setPeriodId} />
-        <button className="btn primary" onClick={sync} disabled={busy || !period || locked}><Icon name="sync" /> {busy ? "Syncing…" : "Sync time logs"}</button>
+        <button className="btn primary" onClick={() => sync(false)} disabled={busy || !period || locked}><Icon name="sync" /> {busy ? "Syncing…" : "Sync now"}</button>
       </PageHeader>
       <Alert>{err}</Alert><Alert kind="success">{msg}</Alert>
       {data && !data.clockify_connected && (
         <Alert kind="info">{data.demo_mode
-          ? "Clockify is not connected, so “Sync time logs” creates sample hours for demonstration. Connect Clockify to use real hours (see Settings)."
+          ? "Clockify is not connected, so syncing creates sample hours for demonstration. Connect Clockify to use real hours (see Settings)."
           : "Clockify is not connected. Set CLOCKIFY_API_KEY in the server's environment variables (see Settings)."}</Alert>
       )}
       {locked && <Alert kind="info">This pay period is approved and locked, so its time logs can no longer change.</Alert>}
@@ -57,7 +70,7 @@ export default function TimeLogs() {
       <div className="grid-side">
         <section className="card">
           <h3>Totals by employee</h3>
-          {!names.length ? <Empty>No hours yet. Click “Sync time logs”.</Empty> : (
+          {!names.length ? <Empty>No hours yet in this pay period.</Empty> : (
             <ul className="totals">{names.map((n) => <li key={n}><span>{n}</span><strong>{hrs(totals[n])} h</strong></li>)}
               <li className="sum"><span>Total</span><strong>{hrs(Object.values(totals).reduce((a, b) => a + b, 0))} h</strong></li></ul>
           )}

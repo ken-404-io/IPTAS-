@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 
-// Loads pay periods (newest first) and picks a sensible default
-export default function usePeriods() {
+// Loads pay periods (newest first) and picks a sensible default:
+// the current period when preferCurrent (Time Logs), else the latest finished period that still needs payroll
+export default function usePeriods({ preferCurrent = false } = {}) {
   const [periods, setPeriods] = useState([]);
   const [periodId, setPeriodId] = useState(null);
   const reload = async (keep) => {
@@ -12,8 +13,8 @@ export default function usePeriods() {
     setPeriods(started);
     if (!keep) {
       // Most recent finished period that still needs payroll, else the current period
-      const pick = started.find((p) => p.status !== "approved" && p.end_date < today)
-        || started.find((p) => p.start_date <= today && p.end_date >= today) || started[0];
+      const current = started.find((p) => p.start_date <= today && p.end_date >= today);
+      const pick = (preferCurrent && current) || started.find((p) => p.status !== "approved" && p.end_date < today) || current || started[0];
       setPeriodId(pick?.period_id || null);
     }
     return started;
