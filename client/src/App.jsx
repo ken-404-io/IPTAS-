@@ -12,6 +12,7 @@ import Users from "./pages/Users.jsx";
 import Audit from "./pages/Audit.jsx";
 import Settings from "./pages/Settings.jsx";
 import Icon from "./components/Icon.jsx";
+import Logo from "./components/Logo.jsx";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: "dashboard", end: true },
@@ -20,7 +21,7 @@ const NAV = [
   { to: "/payroll", label: "Payroll", icon: "wallet" },
   { to: "/reports", label: "Reports", icon: "file" },
   { to: "/pay-rules", label: "Pay Rules", icon: "sliders" },
-  { to: "/users", label: "User Accounts", icon: "shield", owner: true },
+  { to: "/users", label: "User Accounts", icon: "shield" },
   { to: "/audit", label: "Audit Trail", icon: "list", owner: true },
   { to: "/settings", label: "Settings", icon: "gear", owner: true },
 ];
@@ -31,7 +32,7 @@ function Shell({ user, onLogout, children }) {
     <div className="shell">
       <aside className={"sidebar" + (open ? " open" : "")}>
         <div className="brand">
-          <div className="brand-mark">IP</div>
+          <Logo size={40} />
           <div><div className="brand-name">IPTAS</div><div className="brand-sub">Payroll & Time Tracking</div></div>
         </div>
         <nav>
@@ -83,7 +84,7 @@ export default function App() {
         <Route path="/payroll" element={<Payroll user={user} />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/pay-rules" element={<PayRules user={user} />} />
-        {owner && <Route path="/users" element={<Users user={user} />} />}
+        <Route path="/users" element={<Users user={user} />} />
         {owner && <Route path="/audit" element={<Audit />} />}
         {owner && <Route path="/settings" element={<Settings />} />}
         <Route path="*" element={<Navigate to="/" />} />

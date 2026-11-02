@@ -8,6 +8,7 @@ const rateLimit = require("express-rate-limit");
 const db = require("./db");
 const { migrate, seedIfEmpty, ensurePayPeriods } = require("./seed");
 const { computePay } = require("./payroll");
+const { verifyGoogleToken, GoogleAuthError } = require("./google");
 const { syncTimeLogs, testConnection, getApiKey, getTimezone, isValidTimezone, demoModeOn, ClockifyError } = require("./timetracker");
 
 const app = express();
@@ -53,12 +54,40 @@ function bad(res, msg) { return res.status(400).json({ error: msg }); }
 // ---------- auth ----------
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
 
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || "").trim();
+
+function signIn(u) {
+  const user = { user_id: u.user_id, full_name: u.full_name, email: u.email, role: u.role };
+  return { token: jwt.sign(user, JWT_SECRET, { expiresIn: "8h" }), user };
+}
+function statusBlock(res, u) {
+  if (u.status !== "active") return res.status(403).json({ error: "This account has been deactivated. Contact the Business Owner." });
+  return null;
+}
+
+// Tells the login page which sign-in options are available
+app.get("/api/auth/config", (req, res) => res.json({ google_client_id: GOOGLE_CLIENT_ID || null }));
+
+// Sign in with Google: only for accounts that already exist (added by the Owner or an Administrator)
+app.post("/api/auth/google", loginLimiter, wrap(async (req, res) => {
+  let g;
+  try { g = await verifyGoogleToken(req.body?.credential, GOOGLE_CLIENT_ID); }
+  catch (e) { if (e instanceof GoogleAuthError) return res.status(401).json({ error: e.message }); throw e; }
+  let u = (await db.query("SELECT * FROM users WHERE google_sub=$1 OR lower(email)=$2 ORDER BY (google_sub=$1) DESC LIMIT 1", [g.sub, g.email])).rows[0];
+  if (!u) return res.status(403).json({ error: `No IPTAS account uses ${g.email}. Ask the Business Owner or an Administrator to add you under User Accounts.` });
+  const blocked = statusBlock(res, u); if (blocked) return;
+  if (!u.google_sub) await db.query("UPDATE users SET google_sub=$1 WHERE user_id=$2", [g.sub, u.user_id]);
+  await db.query("UPDATE users SET failed_attempts=0, locked_until=NULL WHERE user_id=$1", [u.user_id]);
+  await audit(u.user_id, "LOGIN", "users", u.user_id, null, "Google");
+  res.json(signIn(u));
+}));
+
 app.post("/api/auth/login", loginLimiter, wrap(async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return bad(res, "Email and password are required.");
   const { rows } = await db.query("SELECT * FROM users WHERE lower(email)=lower($1)", [email.trim()]);
   const u = rows[0];
-  if (!u || u.status !== "active") return res.status(401).json({ error: "Invalid email or password." });
+  if (!u || u.status === "inactive") return res.status(401).json({ error: "Invalid email or password." });
   if (u.locked_until && new Date(u.locked_until) > new Date())
     return res.status(423).json({ error: "Account locked after too many failed attempts. Try again in 15 minutes." });
   if (!bcrypt.compareSync(password, u.password_hash)) {
@@ -68,24 +97,26 @@ app.post("/api/auth/login", loginLimiter, wrap(async (req, res) => {
     await audit(u.user_id, "LOGIN_FAILED", "users", u.user_id, null, lock ? "Account locked" : `Attempt ${attempts}`);
     return res.status(401).json({ error: "Invalid email or password." });
   }
+  const blocked = statusBlock(res, u); if (blocked) return;
   await db.query("UPDATE users SET failed_attempts=0, locked_until=NULL WHERE user_id=$1", [u.user_id]);
   await audit(u.user_id, "LOGIN", "users", u.user_id, null, null);
-  const user = { user_id: u.user_id, full_name: u.full_name, email: u.email, role: u.role };
-  res.json({ token: jwt.sign(user, JWT_SECRET, { expiresIn: "8h" }), user });
+  res.json(signIn(u));
 }));
 
 app.get("/api/auth/me", auth, (req, res) => res.json({ user: req.user }));
 
 // ---------- users (owner) ----------
-app.get("/api/users", auth, ownerOnly, wrap(async (req, res) => {
-  const { rows } = await db.query("SELECT user_id, full_name, email, role, status, created_at FROM users ORDER BY user_id");
+app.get("/api/users", auth, wrap(async (req, res) => {
+  const { rows } = await db.query(
+    "SELECT user_id, full_name, email, role, status, created_at, (google_sub IS NOT NULL) AS google FROM users ORDER BY user_id");
   res.json(rows);
 }));
 
-app.post("/api/users", auth, ownerOnly, wrap(async (req, res) => {
+app.post("/api/users", auth, wrap(async (req, res) => {
   const { full_name, email, password, role } = req.body || {};
   if (!full_name || !email || !password) return bad(res, "Name, email and password are required.");
   if (!["owner", "admin"].includes(role)) return bad(res, "Role must be owner or admin.");
+  if (role === "owner" && req.user.role !== "owner") return res.status(403).json({ error: "Only the Business Owner can create another Business Owner account." });
   if (password.length < 8) return bad(res, "Password must be at least 8 characters.");
   const exists = await db.query("SELECT 1 FROM users WHERE lower(email)=lower($1)", [email]);
   if (exists.rowCount) return bad(res, "A user with this email already exists.");
@@ -109,9 +140,11 @@ app.put("/api/users/:id", auth, ownerOnly, wrap(async (req, res) => {
     if (password.length < 8) return bad(res, "Password must be at least 8 characters.");
     await db.query("UPDATE users SET password_hash=$1, failed_attempts=0, locked_until=NULL WHERE user_id=$2", [bcrypt.hashSync(password, 10), id]);
   }
-  await audit(req.user.user_id, "UPDATE_USER", "users", id, { role: old.role, status: old.status }, { role, status, password_reset: !!password });
+  await audit(req.user.user_id, "UPDATE_USER", "users", id,
+    { role: old.role, status: old.status }, { role, status, password_reset: !!password });
   res.json({ ok: true });
 }));
+
 
 // ---------- employees ----------
 const EMP_FIELDS = ["tracker_user_id", "full_name", "email", "employment_type", "pay_rate", "currency", "overtime_eligible", "apply_deductions", "status", "date_hired"];

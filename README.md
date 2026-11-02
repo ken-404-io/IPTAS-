@@ -12,7 +12,7 @@ MIT421 – Systems Design and Implementation · Final Project · Harold A. Sarmi
 | 3. Salary Computation | Regular + overtime pay (weekly threshold × multiplier), CPP and EI at general rates, USD→CAD conversion; Owner approval locks the payroll |
 | 4. Hours & Payroll Dashboard | Live hours, overtime and projected payroll cost; payroll history; Shopify storefront link |
 | 5. Payroll Reports | Payroll Summary (PDF/Excel) and Employee Payslips (PDF) per pay period, with report history |
-| 6. User Management & Security | Login with JWT and bcrypt-hashed passwords, roles (Business Owner / Administrator), lockout after 5 failed attempts, audit trail |
+| 6. User Management & Security | Login with password (bcrypt) or **Sign in with Google**, JWT sessions, roles (Business Owner / Administrator), lockout after 5 failed attempts, audit trail |
 
 ## Tech stack
 React (Vite) · Node.js + Express · PostgreSQL · JWT + bcrypt · jsPDF + SheetJS · Jest-style tests with `node:test`
@@ -58,6 +58,19 @@ How the sync behaves:
 - Approved pay periods are locked and never change.
 - **Add entry** on Time Logs records hours by hand (corrections, untracked work). Manual entries are kept on re-sync and are audit-logged.
 - Workspaces on a regional Clockify server: set `CLOCKIFY_API_URL` (e.g. `https://euc1.clockify.me/api/v1`).
+
+## Accounts and Sign in with Google
+There is no public sign-up. The Business Owner adds accounts under **User Accounts** (Owner or Administrator);
+an Administrator can add Administrator accounts. Only the Owner can change roles, deactivate accounts or reset passwords.
+
+To turn on **Sign in with Google**:
+1. Go to https://console.cloud.google.com → create a project → **APIs & Services → OAuth consent screen**
+   (External, app name IPTAS, your email) → then **Credentials → Create credentials → OAuth client ID → Web application**.
+2. Under **Authorized JavaScript origins** add `https://iptas.onrender.com` (your Render URL) and `http://localhost:3000`.
+3. Copy the **Client ID** and set it as `GOOGLE_CLIENT_ID` on Render (and in `.env` for local use). Redeploy.
+
+The Google button then appears on the login page. It signs in only accounts that already exist in IPTAS with the same
+email address; anyone else is told to ask the Owner or an Administrator for access.
 
 ## Going live with real data
 The first start loads sample employees, hours and payroll history for demonstration. Before running real payroll:

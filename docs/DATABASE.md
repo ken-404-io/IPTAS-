@@ -24,6 +24,7 @@ erDiagram
     varchar full_name
     varchar email UK
     varchar password_hash
+    varchar google_sub UK "Google sign-in ID"
     varchar role "owner | admin"
     varchar status "active | inactive"
     int failed_attempts
@@ -122,7 +123,7 @@ erDiagram
 
 | Table | Purpose |
 |---|---|
-| `users` | System accounts that log in (Owner, Payroll Admin) |
+| `users` | System accounts that log in (Owner, Payroll Admin), with password and optional Google sign-in (`google_sub`) |
 | `employees` | Staff who get paid (hourly or fixed, CAD or USD) |
 | `time_logs` | Hours worked. `source` is `clockify` (synced from the API), `manual` (added by a user) or `demo` (sample data) |
 | `pay_periods` | Two-week pay periods (open, then computed, then approved) |

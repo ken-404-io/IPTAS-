@@ -107,3 +107,6 @@ CREATE TABLE IF NOT EXISTS settings (
   key   VARCHAR(50) PRIMARY KEY,
   value TEXT
 );
+
+-- Google sign-in (added after the first release; safe to run on every start)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(64) UNIQUE;
