@@ -14,40 +14,64 @@ import Settings from "./pages/Settings.jsx";
 import Icon from "./components/Icon.jsx";
 import Logo from "./components/Logo.jsx";
 
+// Sidebar items in labelled sections; "owner" items are only shown to the Business Owner
 const NAV = [
-  { to: "/", label: "Dashboard", icon: "dashboard", end: true },
-  { to: "/employees", label: "Employees", icon: "users" },
-  { to: "/time-logs", label: "Time Logs", icon: "clock" },
-  { to: "/payroll", label: "Payroll", icon: "wallet" },
-  { to: "/reports", label: "Reports", icon: "file" },
-  { to: "/pay-rules", label: "Pay Rules", icon: "sliders" },
-  { to: "/users", label: "User Accounts", icon: "shield", owner: true },
-  { to: "/audit", label: "Audit Trail", icon: "list", owner: true },
-  { to: "/settings", label: "Settings", icon: "gear", owner: true },
+  { items: [{ to: "/", label: "Dashboard", icon: "dashboard", end: true }] },
+  { title: "Track", items: [{ to: "/time-logs", label: "Time Logs", icon: "clock" }] },
+  { title: "Payroll", items: [
+    { to: "/payroll", label: "Payroll", icon: "wallet" },
+    { to: "/reports", label: "Reports", icon: "file" },
+    { to: "/pay-rules", label: "Pay Rules", icon: "sliders" },
+  ] },
+  { title: "Manage", items: [
+    { to: "/employees", label: "Employees", icon: "users" },
+    { to: "/users", label: "User Accounts", icon: "shield", owner: true },
+    { to: "/audit", label: "Audit Trail", icon: "list", owner: true },
+    { to: "/settings", label: "Settings", icon: "gear", owner: true },
+  ] },
 ];
+
+const COLLAPSE_KEY = "iptas_nav_collapsed";
+const readCollapsed = () => { try { return localStorage.getItem(COLLAPSE_KEY) === "1"; } catch { return false; } };
 
 function Shell({ user, onLogout, children }) {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggle = () => setCollapsed((c) => { try { localStorage.setItem(COLLAPSE_KEY, c ? "0" : "1"); } catch { /* storage unavailable */ } return !c; });
+  const initials = user.full_name.split(" ").map((s) => s[0]).slice(0, 2).join("");
   return (
-    <div className="shell">
+    <div className={"shell" + (collapsed ? " nav-collapsed" : "")}>
       <aside className={"sidebar" + (open ? " open" : "")}>
         <div className="brand">
-          <Logo size={40} />
-          <div><div className="brand-name">IPTAS</div><div className="brand-sub">Payroll & Time Tracking</div></div>
+          <Logo size={36} />
+          <div className="brand-text"><div className="brand-name">IPTAS</div><div className="brand-sub">Payroll & Time Tracking</div></div>
         </div>
+        <button type="button" className="nav-toggle" onClick={toggle} aria-label={collapsed ? "Expand menu" : "Collapse menu"} title={collapsed ? "Expand menu" : "Collapse menu"}>
+          <Icon name={collapsed ? "chevrons-right" : "chevrons-left"} size={16} />
+        </button>
         <nav>
-          {NAV.filter((n) => !n.owner || user.role === "owner").map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setOpen(false)} className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
-              <Icon name={n.icon} /> {n.label}
-            </NavLink>
-          ))}
+          {NAV.map((sec, i) => {
+            const items = sec.items.filter((n) => !n.owner || user.role === "owner");
+            if (!items.length) return null;
+            return (
+              <div className="nav-section" key={i}>
+                {sec.title && <div className="nav-title">{sec.title}</div>}
+                {items.map((n) => (
+                  <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setOpen(false)} title={collapsed ? n.label : undefined}
+                    className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
+                    <Icon name={n.icon} size={20} /> <span className="nav-label">{n.label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="sidebar-foot">
-          <div className="who">
-            <div className="avatar">{user.full_name.split(" ").map((s) => s[0]).slice(0, 2).join("")}</div>
-            <div><div className="who-name">{user.full_name}</div><div className="who-role">{user.role === "owner" ? "Business Owner" : "Administrator"}</div></div>
+          <div className="who" title={collapsed ? `${user.full_name} – ${user.role === "owner" ? "Business Owner" : "Administrator"}` : undefined}>
+            <div className="avatar">{initials}</div>
+            <div className="who-text"><div className="who-name">{user.full_name}</div><div className="who-role">{user.role === "owner" ? "Business Owner" : "Administrator"}</div></div>
           </div>
-          <button className="btn ghost small full" onClick={onLogout}><Icon name="logout" /> Log out</button>
+          <button className="nav-link logout" onClick={onLogout} title={collapsed ? "Log out" : undefined}><Icon name="logout" size={20} /> <span className="nav-label">Log out</span></button>
         </div>
       </aside>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
