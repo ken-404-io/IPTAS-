@@ -78,7 +78,7 @@ export default function Dashboard({ user }) {
         <div><span className="muted">Overtime</span><strong>after {hrs(d.rule.overtime_threshold)} h/week × {d.rule.overtime_multiplier}</strong></div>
         <div><span className="muted">CPP</span><strong>{(d.rule.cpp_rate * 100).toFixed(2)}%</strong></div>
         <div><span className="muted">EI</span><strong>{(d.rule.ei_rate * 100).toFixed(2)}%</strong></div>
-        <div><span className="muted">USD → CAD</span><strong>{d.rule.fx_usd_to_cad}</strong></div>
+        <div><span className="muted">USD → CAD</span><strong>{d.fx_rate}</strong></div>
       </section>
     </>
   );

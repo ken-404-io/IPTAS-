@@ -21,7 +21,7 @@ const NAV = [
   { to: "/payroll", label: "Payroll", icon: "wallet" },
   { to: "/reports", label: "Reports", icon: "file" },
   { to: "/pay-rules", label: "Pay Rules", icon: "sliders" },
-  { to: "/users", label: "User Accounts", icon: "shield" },
+  { to: "/users", label: "User Accounts", icon: "shield", owner: true },
   { to: "/audit", label: "Audit Trail", icon: "list", owner: true },
   { to: "/settings", label: "Settings", icon: "gear", owner: true },
 ];
@@ -84,7 +84,7 @@ export default function App() {
         <Route path="/payroll" element={<Payroll user={user} />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/pay-rules" element={<PayRules user={user} />} />
-        <Route path="/users" element={<Users user={user} />} />
+        {owner && <Route path="/users" element={<Users user={user} />} />}
         {owner && <Route path="/audit" element={<Audit />} />}
         {owner && <Route path="/settings" element={<Settings />} />}
         <Route path="*" element={<Navigate to="/" />} />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, money, hrs, periodLabel, fmtDateTime } from "../api.js";
+import { api, money, hrs, periodLabel } from "../api.js";
 import { PageHeader, Alert, Empty, PeriodSelect, Status, Modal } from "../components/ui.jsx";
 import usePeriods from "../components/usePeriods.js";
 import Icon from "../components/Icon.jsx";
@@ -15,7 +15,7 @@ function Payslip({ i }) {
       <div className="ps-row neg"><span>EI deduction</span><strong>{Number(i.ei_deduction) ? "– " : ""}{money(i.ei_deduction, i.currency)}</strong></div>
       <div className="ps-row total"><span>Net pay</span><strong>{money(i.net_pay, i.currency)}</strong></div>
       {i.currency === "USD" && <div className="ps-row"><span>Net pay in CAD (× {i.fx_rate})</span><strong>{money(i.net_pay_cad)}</strong></div>}
-      <p className="tiny muted">Computed by {i.computed_by_name || "–"} on {fmtDateTime(i.computed_at)}. {i.approved_by_name ? `Approved by ${i.approved_by_name} on ${fmtDateTime(i.approved_at)}.` : "Not yet approved."}</p>
+      <p className="tiny muted">Computed by {i.computed_by_name || "–"}. {i.approved_by_name ? `Approved by ${i.approved_by_name}.` : "Not yet approved."}</p>
     </div>
   );
 }
@@ -24,14 +24,14 @@ export default function Payroll({ user }) {
   const { periods, periodId, setPeriodId, reload } = usePeriods();
   const [data, setData] = useState(null);
   const [err, setErr] = useState(""); const [msg, setMsg] = useState("");
-  const [busy, setBusy] = useState(""); const [slip, setSlip] = useState(null);
-  const load = () => periodId && api(`/payroll/${periodId}`).then(setData).catch((e) => setErr(e.message));
+  const [busy, setBusy] = useState(""); const [slip, setSlip] = useState(null); const [fx, setFx] = useState("");
+  const load = () => periodId && api(`/payroll/${periodId}`).then((d) => { setData(d); setFx(String(d.fx_rate)); }).catch((e) => setErr(e.message));
   useEffect(() => { setData(null); setMsg(""); load(); }, [periodId]);
   const act = async (what) => {
     if (what === "approve" && !window.confirm("Approve and lock this payroll? It can no longer be changed after approval.")) return;
     setBusy(what); setErr(""); setMsg("");
     try {
-      if (what === "compute") { const r = await api(`/payroll/${periodId}/compute`, { method: "POST" }); setMsg(`Payroll computed for ${r.employees} employees. ${user.role === "owner" ? "Review it, then approve." : "The Business Owner can now review and approve it."}`); }
+      if (what === "compute") { const r = await api(`/payroll/${periodId}/compute`, { method: "POST", body: { fx_rate: data?.has_usd ? Number(fx) : undefined } }); setMsg(`Payroll computed for ${r.employees} employees. ${user.role === "owner" ? "Review it, then approve." : "The Business Owner can now review and approve it."}`); }
       else { await api(`/payroll/${periodId}/approve`, { method: "POST" }); setMsg("Payroll approved and locked."); }
       await load(); await reload(true);
     } catch (e) { setErr(e.message); } finally { setBusy(""); }
@@ -42,6 +42,10 @@ export default function Payroll({ user }) {
     <>
       <PageHeader title="Payroll" subtitle="Compute pay from synced hours and the pay rules, then approve.">
         <PeriodSelect periods={periods} value={periodId} onChange={setPeriodId} />
+        {p && p.status !== "approved" && data?.has_usd && (
+          <label className="fx-input" title="Exchange rate used to convert USD pay to CAD for this payroll">1 USD =
+            <input type="number" step="0.0001" min="0.5" max="5" value={fx} onChange={(e) => setFx(e.target.value)} aria-label="USD to CAD rate" /> CAD</label>
+        )}
         {p && p.status !== "approved" && <button className="btn dark" onClick={() => act("compute")} disabled={!!busy}><Icon name="calc" /> {busy === "compute" ? "Computing…" : p.status === "computed" ? "Recompute" : "Compute payroll"}</button>}
         {p && p.status === "computed" && user.role === "owner" && <button className="btn primary" onClick={() => act("approve")} disabled={!!busy}><Icon name="check" /> {busy === "approve" ? "Approving…" : "Approve payroll"}</button>}
       </PageHeader>

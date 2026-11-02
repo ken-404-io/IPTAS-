@@ -32,14 +32,18 @@ function splitHours(logs, threshold, overtimeEligible) {
   return { regular: round2(regular), overtime: round2(overtime), total: round2(regular + overtime) };
 }
 
+// CPP and EI apply to employees on Canadian payroll (paid in CAD); USD workers are paid as foreign contractors
+const hasCanadianDeductions = (employee) => employee.currency === "CAD";
+
 /**
  * Compute one employee's pay for one pay period.
- * employee: { employment_type, pay_rate, currency, overtime_eligible, apply_deductions }
- * rule:     { overtime_threshold, overtime_multiplier, cpp_rate, ei_rate, fx_usd_to_cad }
+ * employee: { employment_type, pay_rate, currency, overtime_eligible }
+ * rule:     { overtime_threshold, overtime_multiplier, cpp_rate, ei_rate }
+ * fxRate:   USD to CAD rate used for this payroll (only applied to USD employees)
  * For fixed employees, pay_rate is the amount per pay period; overtime (if eligible) is paid at
  * the equivalent hourly rate = pay_rate / (threshold * 2 weeks).
  */
-function computePay(employee, logs, rule) {
+function computePay(employee, logs, rule, fxRate = 1) {
   const threshold = Number(rule.overtime_threshold);
   const mult = Number(rule.overtime_multiplier);
   const rate = Number(employee.pay_rate);
@@ -54,10 +58,11 @@ function computePay(employee, logs, rule) {
   }
   gross = round2(gross);
 
-  const cpp = employee.apply_deductions ? round2(gross * Number(rule.cpp_rate)) : 0;
-  const ei = employee.apply_deductions ? round2(gross * Number(rule.ei_rate)) : 0;
+  const deduct = hasCanadianDeductions(employee);
+  const cpp = deduct ? round2(gross * Number(rule.cpp_rate)) : 0;
+  const ei = deduct ? round2(gross * Number(rule.ei_rate)) : 0;
   const net = round2(gross - cpp - ei);
-  const fx = employee.currency === "USD" ? Number(rule.fx_usd_to_cad) : 1;
+  const fx = employee.currency === "USD" ? Number(fxRate) : 1;
 
   return {
     regular_hours: regular,
@@ -68,8 +73,8 @@ function computePay(employee, logs, rule) {
     net_pay: net,
     currency: employee.currency,
     fx_rate: fx,
-    net_pay_cad: round2(net * fx),
+    net_pay_cad: round2(net * fx), // shown and totalled, not stored (net_pay x fx_rate)
   };
 }
 
-module.exports = { computePay, splitHours, weekKey, round2 };
+module.exports = { computePay, splitHours, weekKey, round2, hasCanadianDeductions };

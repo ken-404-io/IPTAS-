@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { computePay, splitHours } = require("../payroll");
 
-const rule = { overtime_threshold: 40, overtime_multiplier: 1.5, cpp_rate: 0.0595, ei_rate: 0.0164, fx_usd_to_cad: 1.37 };
+const rule = { overtime_threshold: 40, overtime_multiplier: 1.5, cpp_rate: 0.0595, ei_rate: 0.0164 };
 const days = (start, n, h) => Array.from({ length: n }, (_, i) => {
   const d = new Date(start + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + i);
   return { work_date: d.toISOString().slice(0, 10), hours_worked: h };
@@ -26,7 +26,7 @@ test("overtime is not split when employee is not eligible", () => {
 });
 
 test("hourly pay with overtime, CPP and EI", () => {
-  const emp = { employment_type: "hourly", pay_rate: 20, currency: "CAD", overtime_eligible: true, apply_deductions: true };
+  const emp = { employment_type: "hourly", pay_rate: 20, currency: "CAD", overtime_eligible: true };
   const p = computePay(emp, days("2026-10-05", 5, 9), rule);
   // 40*20 + 5*20*1.5 = 950
   assert.strictEqual(p.gross_pay, 950);
@@ -37,9 +37,18 @@ test("hourly pay with overtime, CPP and EI", () => {
 });
 
 test("fixed pay employee in USD converted to CAD", () => {
-  const emp = { employment_type: "fixed", pay_rate: 1000, currency: "USD", overtime_eligible: false, apply_deductions: false };
-  const p = computePay(emp, days("2026-10-05", 10, 8), rule);
+  const emp = { employment_type: "fixed", pay_rate: 1000, currency: "USD", overtime_eligible: false };
+  const p = computePay(emp, days("2026-10-05", 10, 8), rule, 1.37);
   assert.strictEqual(p.gross_pay, 1000);
   assert.strictEqual(p.net_pay, 1000);
   assert.strictEqual(p.net_pay_cad, 1370);
+});
+
+test("CPP and EI apply only to employees paid in CAD", () => {
+  const cad = computePay({ employment_type: "hourly", pay_rate: 20, currency: "CAD", overtime_eligible: true }, days("2026-10-05", 5, 8), rule);
+  const usd = computePay({ employment_type: "hourly", pay_rate: 20, currency: "USD", overtime_eligible: true }, days("2026-10-05", 5, 8), rule, 1.4);
+  assert.ok(cad.cpp_deduction > 0 && cad.ei_deduction > 0);
+  assert.strictEqual(usd.cpp_deduction, 0);
+  assert.strictEqual(usd.fx_rate, 1.4);
+  assert.strictEqual(usd.net_pay_cad, 1120);
 });
