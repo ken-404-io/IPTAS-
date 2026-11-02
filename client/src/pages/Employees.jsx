@@ -60,16 +60,17 @@ export default function Employees() {
       <section className="card flush">
         {!rows ? <div className="loading">Loading…</div> : !shown.length ? <Empty>No employees found.</Empty> : (
           <div className="table-wrap"><table>
-            <thead><tr><th>Name</th><th>Type</th><th className="num">Pay rate</th><th>Overtime</th><th>CPP / EI</th><th>Tracker ID</th><th>Hired</th><th>Status</th><th /></tr></thead>
+            <colgroup><col /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "9%" }} /><col style={{ width: "8%" }} /><col style={{ width: "11%" }} /><col style={{ width: "12%" }} /><col style={{ width: "9%" }} /><col style={{ width: "52px" }} /></colgroup>
+            <thead><tr><th>Name</th><th>Type</th><th className="num">Pay rate</th><th className="center">Overtime</th><th className="center">CPP / EI</th><th>Tracker ID</th><th>Hired</th><th>Status</th><th /></tr></thead>
             <tbody>{shown.map((r) => (
               <tr key={r.employee_id}>
                 <td><strong>{r.full_name}</strong><div className="tiny muted">{r.email}</div></td>
                 <td>{r.employment_type === "hourly" ? "Hourly" : "Fixed"}</td>
                 <td className="num">{money(r.pay_rate, r.currency)}{r.employment_type === "hourly" ? "/h" : "/period"}</td>
-                <td>{r.overtime_eligible ? "Yes" : "No"}</td>
-                <td>{r.currency === "CAD" ? "Yes" : "No"}</td>
+                <td className="center">{r.overtime_eligible ? "Yes" : "No"}</td>
+                <td className="center">{r.currency === "CAD" ? "Yes" : "No"}</td>
                 <td className="tiny">{r.tracker_user_id || <span className="muted">not linked</span>}</td>
-                <td>{fmtDate(r.date_hired)}</td>
+                <td className="nowrap">{fmtDate(r.date_hired)}</td>
                 <td><Status value={r.status} /></td>
                 <td><button className="icon-btn" onClick={() => setEdit(r)} aria-label="Edit"><Icon name="edit" /></button></td>
               </tr>))}

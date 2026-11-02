@@ -30,6 +30,7 @@ export default function Users({ user }) {
       </PageHeader>
       <Alert>{err}</Alert><Alert kind="success">{msg}</Alert>
       <section className="card flush"><div className="table-wrap"><table>
+        <colgroup><col style={{ width: "20%" }} /><col /><col style={{ width: "15%" }} /><col style={{ width: "10%" }} /><col style={{ width: "13%" }} /><col style={{ width: "24%" }} /></colgroup>
         <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
         <tbody>{rows.map((u) => (
           <tr key={u.user_id}>
@@ -47,6 +48,7 @@ export default function Users({ user }) {
       <section className="card">
         <h3>Role permissions</h3>
         <div className="table-wrap"><table className="perm">
+          <colgroup><col /><col style={{ width: "18%" }} /><col style={{ width: "18%" }} /></colgroup>
           <thead><tr><th>Function</th><th>Administrator</th><th>Business Owner</th></tr></thead>
           <tbody>
             {[["Employee records, time-log sync, compute payroll, dashboard, reports", true, true], ["Configure pay rules", false, true], ["Approve payroll", false, true], ["Manage user accounts", false, true], ["View audit trail & settings", false, true]]

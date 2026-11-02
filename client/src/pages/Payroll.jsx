@@ -43,8 +43,8 @@ export default function Payroll({ user }) {
       <PageHeader title="Payroll" subtitle="Compute gets the latest hours from Clockify, applies the pay rules, then the Owner approves.">
         <PeriodSelect periods={periods} value={periodId} onChange={setPeriodId} />
         {p && p.status !== "approved" && data?.has_usd && (
-          <label className="fx-input" title="Exchange rate used to convert USD pay to CAD for this payroll">1 USD =
-            <input type="number" step="0.0001" min="0.5" max="5" value={fx} onChange={(e) => setFx(e.target.value)} aria-label="USD to CAD rate" /> CAD</label>
+          <label className="fx-input" title="Exchange rate used to convert USD pay to CAD for this payroll"><span className="label">USD → CAD</span>
+            <input type="number" step="0.0001" min="0.5" max="5" value={fx} onChange={(e) => setFx(e.target.value)} aria-label="USD to CAD rate" /></label>
         )}
         {p && p.status !== "approved" && <button className="btn dark" onClick={() => act("compute")} disabled={!!busy}><Icon name="calc" /> {busy === "compute" ? "Syncing & computing…" : p.status === "computed" ? "Recompute" : "Compute payroll"}</button>}
         {p && p.status === "computed" && user.role === "owner" && <button className="btn primary" onClick={() => act("approve")} disabled={!!busy}><Icon name="check" /> {busy === "approve" ? "Approving…" : "Approve payroll"}</button>}
@@ -63,6 +63,7 @@ export default function Payroll({ user }) {
       <section className="card flush">
         {!data ? <div className="loading">Loading…</div> : !items.length ? <Empty>No payroll computed for this period yet. Click “Compute payroll” – it gets the hours from Clockify automatically.</Empty> : (
           <div className="table-wrap"><table>
+            <colgroup><col /><col style={{ width: "8%" }} /><col style={{ width: "8%" }} /><col style={{ width: "11%" }} /><col style={{ width: "10%" }} /><col style={{ width: "9%" }} /><col style={{ width: "12%" }} /><col style={{ width: "12%" }} /><col style={{ width: "90px" }} /></colgroup>
             <thead><tr><th>Employee</th><th className="num">Reg. hrs</th><th className="num">OT hrs</th><th className="num">Gross</th><th className="num">CPP</th><th className="num">EI</th><th className="num">Net pay</th><th className="num">Net (CAD)</th><th /></tr></thead>
             <tbody>{items.map((i) => (
               <tr key={i.payroll_id} className="click" onClick={() => setSlip(i)}>
