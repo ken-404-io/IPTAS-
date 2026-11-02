@@ -13,6 +13,7 @@ import Audit from "./pages/Audit.jsx";
 import Settings from "./pages/Settings.jsx";
 import Icon from "./components/Icon.jsx";
 import Logo from "./components/Logo.jsx";
+import { AssistantProvider } from "./components/Assistant.jsx";
 
 // Sidebar items in labelled sections; "owner" items are only shown to the Business Owner
 const NAV = [
@@ -80,7 +81,7 @@ function Shell({ user, onLogout, children }) {
           <button className="menu-btn" onClick={() => setOpen(true)} aria-label="Open menu"><Icon name="menu" /></button>
           <span className="topbar-title">IPTAS</span>
         </header>
-        <div className="content">{children}</div>
+        <AssistantProvider><div className="content">{children}</div></AssistantProvider>
       </main>
     </div>
   );

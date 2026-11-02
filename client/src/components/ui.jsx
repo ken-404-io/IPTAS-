@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import Icon from "./Icon.jsx";
+import { useAssistantMessage } from "./Assistant.jsx";
 
 export function PageHeader({ title, subtitle, children }) {
   return (
@@ -27,7 +28,9 @@ export function Modal({ title, onClose, children, wide }) {
 }
 
 export function Alert({ kind = "error", children }) {
-  if (!children) return null;
+  // Info messages go to the floating assistant (when the page has one); errors and successes stay inline
+  const toAssistant = useAssistantMessage(kind === "info" ? children : null);
+  if (!children || (kind === "info" && toAssistant)) return null;
   return <div className={"alert " + kind}>{children}</div>;
 }
 
