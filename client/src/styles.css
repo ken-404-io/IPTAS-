@@ -208,3 +208,35 @@ table.perm td:not(:first-child), table.perm th:not(:first-child) { text-align: c
 .config-list li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #EEE; }
 .config-list li:last-child { border-bottom: none; }
 .config-list code { font-size: 12px; background: #F3F3F3; padding: 1px 6px; border-radius: 6px; }
+
+/* daily hours chart (Time Logs) */
+.chart-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--ink-2); }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.sw.line { height: 0; border-top: 1.5px solid #6E6E6E; border-radius: 0; width: 14px; vertical-align: 3px; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 18px 26px; margin-top: 8px; }
+.daily-chart { margin: 0; }
+.daily-chart figcaption { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.chart-box { position: relative; }
+.chart-box svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart-box .grid { stroke: #ECEBE6; stroke-width: 1; }
+.chart-box .axis { stroke: #C3C2B7; stroke-width: 1; }
+.chart-box .limit { stroke: #6E6E6E; stroke-width: 1.5; }
+.chart-box .tick { font-size: 12px; fill: #898781; font-family: inherit; }
+.chart-box .tick.small { font-size: 10px; }
+.chart-box .tick.weekend { fill: #B9B7AF; }
+.chart-box .hit { fill: transparent; outline: none; }
+.chart-box .hit.on, .chart-box .hit:focus-visible { fill: rgba(34, 34, 34, .05); }
+.chart-tip { position: absolute; top: 0; background: #fff; border: 1px solid rgba(11,11,11,.12); border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,.10);
+  padding: 8px 10px; font-size: 12.5px; pointer-events: none; min-width: 150px; z-index: 5; }
+.chart-tip div { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.chart-tip i { width: 9px; height: 9px; border-radius: 2px; }
+.chart-tip b { margin-left: auto; padding-left: 10px; }
+.chart-tip .tip-total { border-top: 1px solid #EEE; padding-top: 4px; }
+.link-row { all: unset; box-sizing: border-box; display: flex; justify-content: space-between; gap: 10px; width: 100%; cursor: pointer; border-radius: 8px; }
+.link-row:hover, .link-row.sel { color: var(--red); }
+.link-row:focus-visible { outline: 2px solid var(--pink); }
+.totals li:has(.link-row) { padding: 0; }
+.totals li .link-row { padding: 8px 0; }
+.day-strip { margin-bottom: 14px; }
+.link { color: var(--red); font-weight: 600; }
+@media (max-width: 700px) { .chart-grid { grid-template-columns: 1fr; } }
