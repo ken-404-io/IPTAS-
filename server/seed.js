@@ -1,3 +1,4 @@
+require("./env");
 // Creates tables and loads starter data the first time the app runs on an empty database.
 const fs = require("fs");
 const path = require("path");
