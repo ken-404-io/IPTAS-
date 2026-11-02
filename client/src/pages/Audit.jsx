@@ -22,6 +22,7 @@ export default function Audit() {
       <section className="card flush">
         {!rows ? <div className="loading">Loading…</div> : !shown.length ? <Empty>No matching entries.</Empty> : (
           <div className="table-wrap tall"><table>
+            <colgroup><col style={{ width: "15%" }} /><col style={{ width: "14%" }} /><col style={{ width: "16%" }} /><col style={{ width: "11%" }} /><col style={{ width: "16%" }} /><col /></colgroup>
             <thead><tr><th>When</th><th>User</th><th>Action</th><th>Record</th><th>Old value</th><th>New value</th></tr></thead>
             <tbody>{shown.map((a) => (
               <tr key={a.audit_id}><td className="nowrap">{fmtDateTime(a.logged_at)}</td><td>{a.full_name || "System"}</td><td><span className="pill">{a.action}</span></td>

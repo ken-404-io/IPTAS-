@@ -81,19 +81,31 @@ export default function TimeLogs() {
           : "Clockify is not connected. Set CLOCKIFY_API_KEY in the server's environment variables (see Settings)."}</Alert>
       )}
       {locked && <Alert kind="info">This pay period is approved and locked, so its time logs can no longer change.</Alert>}
-      {data?.last_sync && <p className="tiny muted">Last sync: {fmtDateTime(data.last_sync.at)} · {data.last_sync.mode === "clockify" ? "Clockify" : "Sample data"} · period {data.last_sync.period}</p>}
-      <div className="grid-side">
-        <section className="card">
-          <h3>Totals by employee</h3>
-          {!ids.length ? <Empty>No hours yet in this pay period.</Empty> : (
-            <ul className="totals">{ids.map((id) => (
-              <li key={id}><button type="button" className={"link-row" + (emp === id ? " sel" : "")} onClick={() => setEmp(emp === id ? "" : id)} title="Show only this employee">
-                <span>{totals[id].name}<span className="tiny muted day-split">{hrs(totals[id].regular)} regular · {hrs(totals[id].overtime)} OT</span></span><strong>{hrs(totals[id].hours)} h</strong></button></li>))}
-              <li className="sum"><span>Total<span className="tiny muted day-split">{hrs(sum("regular"))} regular · {hrs(sum("overtime"))} OT</span></span><strong>{hrs(sum("hours"))} h</strong></li></ul>
-          )}
-          <p className="tiny muted">Overtime is counted per day: the first {hrs(ot)} hours of each day are regular, hours above {hrs(ot)} are overtime.</p>
+      {data?.last_sync && <p className="tiny muted meta-line">Last sync {fmtDateTime(data.last_sync.at)} · {data.last_sync.mode === "clockify" ? "Clockify" : "Sample data"} · {data.last_sync.period}</p>}
+      {/* Employee summary: one card per employee (click to filter), plus the period total */}
+      {ids.length > 0 && (<>
+        <section className="summary-row" aria-label="Hours by employee">
+          <div className="sum-card total">
+            <span className="label">All employees</span>
+            <span className="big">{hrs(sum("hours"))}<small>h</small></span>
+            <span className="sub">{hrs(sum("regular"))} regular · {hrs(sum("overtime"))} overtime</span>
+            <div className="split" aria-hidden="true"><i style={{ width: `${(sum("regular") / Math.max(sum("regular") + sum("overtime"), 0.0001)) * 100}%`, background: REG_COLOR }} /><i style={{ flex: 1, background: sum("overtime") > 0 ? OT_COLOR : "transparent" }} /></div>
+          </div>
+          {ids.map((id) => (
+            <button type="button" key={id} className={"sum-card" + (emp === id ? " sel" : "")} onClick={() => setEmp(emp === id ? "" : id)} aria-pressed={emp === id} title="Show only this employee">
+              <span className="name">{totals[id].name}</span>
+              <span className="big">{hrs(totals[id].hours)}<small>h</small></span>
+              <span className="sub">{hrs(totals[id].regular)} regular · {hrs(totals[id].overtime)} overtime</span>
+              <div className="split" aria-hidden="true"><i style={{ width: `${(totals[id].regular / Math.max(totals[id].regular + totals[id].overtime, 0.0001)) * 100}%`, background: REG_COLOR }} /><i style={{ flex: 1, background: totals[id].overtime > 0 ? OT_COLOR : "transparent" }} /></div>
+            </button>
+          ))}
         </section>
-        <section className="card flush">
+        <p className="tiny muted rule-note">
+          <i className="sw" style={{ background: REG_COLOR }} />Regular: first {hrs(ot)} hours of each day ·{" "}
+          <i className="sw" style={{ background: OT_COLOR }} />Overtime: hours above {hrs(ot)} in a day · Click a card to show only that employee.
+        </p>
+      </>)}
+      <section className="card flush">
           <div className="card-head pad">
             <h3>Hours per day {period && <Status value={period.status} />}</h3>
           </div>
@@ -104,16 +116,17 @@ export default function TimeLogs() {
               {ids.map((id) => <option key={id} value={id}>{totals[id].name}</option>)}
             </select>
             {(q || emp) && <button type="button" className="btn ghost small" onClick={() => { setQ(""); setEmp(""); }}>Clear</button>}
-            <span className="tiny muted">{days.length} day{days.length === 1 ? "" : "s"} shown</span>
+            <span className="tiny muted count">{days.length} day{days.length === 1 ? "" : "s"} shown</span>
           </div>
           {!data ? <div className="loading">Loading…</div> : !days.length ? <Empty>{q || emp ? "No days match the search or filter." : "No time entries in this period."}</Empty> : (
             <div className="table-wrap tall"><table>
+              <colgroup><col style={{ width: "15%" }} /><col style={{ width: "20%" }} /><col /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "11%" }} /></colgroup>
               <thead><tr><th>Date</th><th>Employee</th><th>Time entries{tz ? ` (${tz.split("/").pop().replace(/_/g, " ")} time)` : ""}</th>
                 <th className="num">Total</th><th className="num">Regular</th><th className="num">Overtime</th></tr></thead>
               <tbody>{days.map((d) => (
                 <tr key={d.employee_id + d.work_date} className="click" onClick={() => setPick(d)} title="Show all time entries for this day">
-                  <td className="nowrap">{fmtDate(d.work_date)}</td><td>{d.full_name}</td>
-                  <td className="tiny">{d.entries.slice(0, 3).map((e) => (
+                  <td className="nowrap">{fmtDate(d.work_date)}</td><td><strong>{d.full_name}</strong></td>
+                  <td className="tiny entries-cell">{d.entries.slice(0, 3).map((e) => (
                     <div key={e.log_id}>{e.start_time ? `${timeIn(e.start_time, tz)} – ${timeIn(e.end_time, tz)}` : "–"} <span className="muted">({hrs(e.hours)} h)</span>
                       {e.source !== "clockify" && <span className={"pill " + e.source}> {SOURCE[e.source] || e.source}</span>}</div>))}
                     {d.entries.length > 3 && <div className="link">+{d.entries.length - 3} more entries</div>}</td>
@@ -126,8 +139,7 @@ export default function TimeLogs() {
                 <td className="num">{hrs(days.reduce((a, d) => a + d.regular, 0))}</td><td className="num">{hrs(days.reduce((a, d) => a + d.overtime, 0))}</td></tr></tfoot>
             </table></div>
           )}
-        </section>
-      </div>
+      </section>
       {pick && (
         <Modal wide title={`${pick.full_name} – ${fmtDate(pick.work_date)}`} onClose={() => setPick(null)}>
           <div className="chart-legend modal-legend">

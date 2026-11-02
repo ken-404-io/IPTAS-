@@ -64,6 +64,7 @@ export default function PayRules({ user }) {
       <section className="card flush">
         <div className="card-head pad"><h3>Rule history</h3></div>
         <div className="table-wrap"><table>
+          <colgroup><col /><col style={{ width: "18%" }} /><col style={{ width: "13%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /></colgroup>
           <thead><tr><th>Name</th><th>Effective</th><th className="num">OT after</th><th className="num">OT ×</th><th className="num">CPP</th><th className="num">EI</th></tr></thead>
           <tbody>{rules.map((r) => (
             <tr key={r.rule_id}><td>{r.rule_name}</td><td>{fmtDate(r.effective_date)}</td><td className="num">{r.overtime_threshold} h</td><td className="num">{r.overtime_multiplier}</td><td className="num">{(r.cpp_rate * 100).toFixed(2)}%</td><td className="num">{(r.ei_rate * 100).toFixed(2)}%</td></tr>
