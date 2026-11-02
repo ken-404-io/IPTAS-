@@ -28,7 +28,7 @@ export function scaleFor(rows, threshold) {
   return niceMax(Math.max(0, ...rows.map((d) => d.hours)), threshold);
 }
 
-export default function DailyChart({ name, dates, byDate, threshold, scale, onPick }) {
+export default function DailyChart({ name, dates, byDate, threshold, scale, onPick, selected }) {
   const [hover, setHover] = useState(null);
   const { max, step } = scale;
   const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
@@ -73,7 +73,7 @@ export default function DailyChart({ name, dates, byDate, threshold, scale, onPi
                 <text x={x + colW / 2} y={H - PAD_B + 29} textAnchor="middle" className={"tick small" + (weekend ? " weekend" : "")}>
                   {day.toLocaleDateString("en-CA", { weekday: "short" }).slice(0, 2)}</text>
                 {/* hit target: the whole day slot, bigger than the mark */}
-                <rect x={PAD_L + i * slot} y={PAD_T} width={slot} height={plotH + 34} className={"hit" + (hover === i ? " on" : "")}
+                <rect x={PAD_L + i * slot} y={PAD_T} width={slot} height={plotH + 34} className={"hit" + (hover === i ? " on" : "") + (selected === d ? " sel" : "")}
                   onMouseEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)}
                   onClick={() => row && onPick?.(row)} tabIndex={row ? 0 : -1}
                   onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && row && onPick?.(row)}
@@ -93,7 +93,7 @@ export default function DailyChart({ name, dates, byDate, threshold, scale, onPi
               <div><i style={{ background: REG_COLOR }} />Regular <b>{hrs(h.regular)} h</b></div>
               <div><i style={{ background: OT_COLOR }} />Overtime <b>{hrs(h.overtime)} h</b></div>
               <div className="tip-total">Total <b>{hrs(h.hours)} h</b></div>
-              <div className="tiny muted">Click for the time entries</div>
+              {selected !== dates[hover] && <div className="tiny muted">Click to show this day</div>}
             </>) : <div className="muted">No hours</div>}
           </div>
         )}
