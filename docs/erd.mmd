@@ -1,0 +1,108 @@
+erDiagram
+  USERS |o--o{ PAYROLL : "computes (computed_by)"
+  USERS |o--o{ PAYROLL : "approves (approved_by)"
+  USERS |o--o{ PAYROLL_REPORTS : generates
+  USERS |o--o{ AUDIT_LOG : performs
+  EMPLOYEES ||--o{ TIME_LOGS : records
+  EMPLOYEES ||--o{ PAYROLL : receives
+  PAY_PERIODS ||--o{ PAYROLL : contains
+  PAY_PERIODS ||--o{ PAYROLL_REPORTS : "summarized in"
+  PAY_RULES ||--o{ PAYROLL : "applied to"
+
+  USERS {
+    int user_id PK
+    varchar full_name
+    varchar email UK
+    varchar password_hash
+    varchar role "owner | admin"
+    varchar status "active | inactive"
+    int failed_attempts
+    timestamptz locked_until
+    timestamptz created_at
+  }
+  EMPLOYEES {
+    int employee_id PK
+    varchar tracker_user_id UK
+    varchar full_name
+    varchar email
+    varchar employment_type "hourly | fixed"
+    numeric pay_rate
+    varchar currency "CAD | USD"
+    boolean overtime_eligible
+    boolean apply_deductions
+    varchar status "active | inactive"
+    date date_hired
+  }
+  TIME_LOGS {
+    int log_id PK
+    int employee_id FK
+    varchar tracker_entry_id UK
+    date work_date
+    timestamptz start_time
+    timestamptz end_time
+    numeric hours_worked
+    varchar project
+    varchar source
+    timestamptz synced_at
+  }
+  PAY_PERIODS {
+    int period_id PK
+    date start_date UK
+    date end_date
+    date pay_date
+    varchar status "open | computed | approved"
+  }
+  PAY_RULES {
+    int rule_id PK
+    varchar rule_name
+    numeric overtime_threshold
+    numeric overtime_multiplier
+    numeric cpp_rate
+    numeric ei_rate
+    numeric fx_usd_to_cad
+    date effective_date
+    timestamptz created_at
+  }
+  PAYROLL {
+    int payroll_id PK
+    int employee_id FK
+    int period_id FK
+    int rule_id FK
+    int computed_by FK
+    int approved_by FK
+    numeric regular_hours
+    numeric overtime_hours
+    numeric gross_pay
+    numeric cpp_deduction
+    numeric ei_deduction
+    numeric net_pay
+    varchar currency
+    numeric fx_rate
+    numeric net_pay_cad
+    varchar status "computed | approved"
+    timestamptz computed_at
+    timestamptz approved_at
+  }
+  PAYROLL_REPORTS {
+    int report_id PK
+    int period_id FK
+    int generated_by FK
+    varchar report_type
+    varchar file_format "PDF | Excel"
+    varchar file_name
+    timestamptz generated_at
+  }
+  AUDIT_LOG {
+    int audit_id PK
+    int user_id FK
+    varchar action
+    varchar table_name
+    int record_id
+    text old_value
+    text new_value
+    timestamptz logged_at
+  }
+  SETTINGS {
+    varchar key PK
+    text value
+  }
