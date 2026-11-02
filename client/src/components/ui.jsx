@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import Icon from "./Icon.jsx";
 import { useAssistantMessage } from "./Assistant.jsx";
+import { Sk } from "./Skeleton.jsx";
 
 export function PageHeader({ title, subtitle, children }) {
   return (
@@ -42,6 +43,7 @@ export function Status({ value }) {
 export function Empty({ children }) { return <div className="empty">{children}</div>; }
 
 export function PeriodSelect({ periods, value, onChange }) {
+  if (!periods.length) return <Sk w={240} h={40} r={10} className="sk-select" />; // still loading
   return (
     <select value={value || ""} onChange={(e) => onChange(Number(e.target.value))} aria-label="Pay period">
       {periods.map((p) => (

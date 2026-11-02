@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { PageHeader, Alert } from "../components/ui.jsx";
+import { Sk } from "../components/Skeleton.jsx";
 
 // Settings are server environment variables (Render → your service → Environment, or .env locally).
 // This page shows them, tests the Clockify connection and removes the sample data.
@@ -41,7 +42,18 @@ export default function Settings() {
       setMsg(`Sample data removed: ${r.employees} employees, ${r.time_logs} time entries and ${r.payroll} payroll records.`); load(); setTest(null);
     } catch (e) { setErr(e.message); }
   };
-  if (!s) return <div className="loading">{err || "Loading…"}</div>;
+  if (!s) return (
+    <>
+      <PageHeader title="Settings" subtitle="Configured on the server." />
+      <Alert>{err}</Alert>
+      {!err && (<div aria-busy="true" aria-label="Loading settings">
+        <section className="card"><div className="set-head"><Sk w={80} h={16} /><Sk w={190} h={12} /></div></section>
+        <section className="card"><Sk w={90} h={16} style={{ marginBottom: 16 }} />
+          <div className="kv">{[0, 1, 2, 3, 4].map((i) => <div key={i}><Sk w={90} h={12} /><Sk w={[160, 200, 130, 50, 40][i]} h={12} /></div>)}</div>
+        </section>
+      </div>)}
+    </>
+  );
   const hasSample = s.sample_data.employees > 0 || s.sample_data.logs > 0;
   const rows = [
     ["Company", s.company_name, "COMPANY_NAME"],

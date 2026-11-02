@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, fmtDateTime } from "../api.js";
 import { PageHeader, Alert, Empty } from "../components/ui.jsx";
+import { SkRows } from "../components/Skeleton.jsx";
 
 function pretty(v) {
   if (!v) return "";
@@ -20,14 +21,14 @@ export default function Audit() {
       </PageHeader>
       <Alert>{err}</Alert>
       <section className="card flush">
-        {!rows ? <div className="loading">Loading…</div> : !shown.length ? <Empty>No matching entries.</Empty> : (
+        {rows && !shown.length ? <Empty>No matching entries.</Empty> : (
           <div className="table-wrap tall"><table>
             <colgroup><col style={{ width: "15%" }} /><col style={{ width: "14%" }} /><col style={{ width: "16%" }} /><col style={{ width: "11%" }} /><col style={{ width: "16%" }} /><col /></colgroup>
             <thead><tr><th>When</th><th>User</th><th>Action</th><th>Record</th><th>Old value</th><th>New value</th></tr></thead>
-            <tbody>{shown.map((a) => (
+            {!rows ? <SkRows rows={8} cols={["text", "text", "pill", "text", "lines", "lines"]} /> : <tbody>{shown.map((a) => (
               <tr key={a.audit_id}><td className="nowrap">{fmtDateTime(a.logged_at)}</td><td>{a.full_name || "System"}</td><td><span className="pill">{a.action}</span></td>
                 <td className="tiny">{a.table_name}{a.record_id ? ` #${a.record_id}` : ""}</td><td className="tiny wrap">{pretty(a.old_value)}</td><td className="tiny wrap">{pretty(a.new_value)}</td></tr>
-            ))}</tbody>
+            ))}</tbody>}
           </table></div>
         )}
       </section>
