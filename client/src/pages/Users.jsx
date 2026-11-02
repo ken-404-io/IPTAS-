@@ -3,27 +3,72 @@ import { api, fmtDate } from "../api.js";
 import { PageHeader, Alert, Modal } from "../components/ui.jsx";
 import { Sk } from "../components/Skeleton.jsx";
 import Icon from "../components/Icon.jsx";
+import { useValidation, FieldError, PasswordChecklist, checkName, checkEmail, checkPassword } from "../components/validation.jsx";
+
+const BLANK = { full_name: "", email: "", password: "", role: "admin" };
+
+function AddUser({ taken, onClose, onCreated }) {
+  const [f, setF] = useState(BLANK);
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const v = useValidation(f, (x) => ({ full_name: checkName(x.full_name, "Full name"), email: checkEmail(x.email, taken), password: checkPassword(x.password) }));
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const submit = async (e) => {
+    e.preventDefault(); setErr(""); v.touchAll();
+    if (!v.valid) return;
+    setBusy(true);
+    try { await api("/users", { method: "POST", body: { ...f, full_name: f.full_name.trim(), email: f.email.trim() } }); onCreated(f.email.trim()); }
+    catch (e2) { setErr(e2.message); } finally { setBusy(false); }
+  };
+  return (
+    <form className="form" onSubmit={submit} noValidate>
+      <Alert>{err}</Alert>
+      <label>Full name<input value={f.full_name} onChange={set("full_name")} {...v.bind("full_name")} autoFocus /><FieldError name="full_name" msg={v.shown("full_name")} /></label>
+      <label>Email<input type="email" value={f.email} onChange={set("email")} {...v.bind("email")} /><FieldError name="email" msg={v.shown("email")} /></label>
+      <div className="row2">
+        <label>Temporary password<input type="text" value={f.password} onChange={set("password")} {...v.bind("password")} autoComplete="off" />
+          <PasswordChecklist value={f.password} /></label>
+        <label>Role<select value={f.role} onChange={set("role")}><option value="admin">Administrator</option><option value="owner">Business Owner</option></select></label>
+      </div>
+      <p className="tiny muted">Share the temporary password with the person. They can also use “Sign in with Google” if this email is their Google account.</p>
+      <div className="form-actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy || !v.valid}>{busy ? "Creating…" : "Create account"}</button></div>
+    </form>
+  );
+}
+
+function ResetPassword({ user, onClose, onDone }) {
+  const [f, setF] = useState({ password: "", confirm: "" });
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const v = useValidation(f, (x) => ({ password: checkPassword(x.password), confirm: !x.confirm ? "Type the password again." : x.confirm !== x.password ? "The passwords do not match." : "" }));
+  const submit = async (e) => {
+    e.preventDefault(); setErr(""); v.touchAll();
+    if (!v.valid) return;
+    setBusy(true);
+    try { await api(`/users/${user.user_id}`, { method: "PUT", body: { password: f.password } }); onDone(); }
+    catch (e2) { setErr(e2.message); } finally { setBusy(false); }
+  };
+  return (
+    <form className="form" onSubmit={submit} noValidate>
+      <Alert>{err}</Alert>
+      <label>New password<input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} {...v.bind("password")} autoComplete="new-password" autoFocus />
+        <PasswordChecklist value={f.password} /></label>
+      <label>Confirm password<input type="password" value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} {...v.bind("confirm")} autoComplete="new-password" /><FieldError name="confirm" msg={v.shown("confirm")} /></label>
+      <div className="form-actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy || !v.valid}>{busy ? "Saving…" : "Reset password"}</button></div>
+    </form>
+  );
+}
 
 export default function Users({ user }) {
   const [rows, setRows] = useState(null);
   const [add, setAdd] = useState(false);
-  const [f, setF] = useState({ full_name: "", email: "", password: "", role: "admin" });
+  const [resetting, setResetting] = useState(null);
   const [err, setErr] = useState(""); const [msg, setMsg] = useState("");
   const load = () => api("/users").then(setRows).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
-  const create = async (e) => {
-    e.preventDefault(); setErr("");
-    try { await api("/users", { method: "POST", body: f }); setAdd(false); setMsg(`Account created for ${f.email}.`); setF({ full_name: "", email: "", password: "", role: "admin" }); load(); }
-    catch (e2) { setErr(e2.message); }
-  };
   const update = async (u, body, note) => {
     setErr(""); setMsg("");
     try { await api(`/users/${u.user_id}`, { method: "PUT", body }); setMsg(note); load(); } catch (e2) { setErr(e2.message); }
   };
-  const reset = (u) => {
-    const pw = window.prompt(`New password for ${u.full_name} (at least 8 characters):`);
-    if (pw) update(u, { password: pw }, "Password reset.");
-  };
+  const reset = (u) => { setErr(""); setMsg(""); setResetting(u); };
   const initials = (n) => n.split(" ").map((x) => x[0]).slice(0, 2).join("").toUpperCase();
   const toggleActive = (u) => update(u, { status: u.status === "active" ? "inactive" : "active" }, `${u.full_name} is now ${u.status === "active" ? "inactive" : "active"}.`);
   return (
@@ -65,17 +110,13 @@ export default function Users({ user }) {
       </details>
       {add && (
         <Modal title="Add user" onClose={() => setAdd(false)}>
-          <form className="form" onSubmit={create}>
-            <label>Full name<input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} required /></label>
-            <label>Email<input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required /></label>
-            <div className="row2">
-              <label>Temporary password<input type="text" minLength={8} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required /></label>
-              <label>Role<select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="admin">Administrator</option><option value="owner">Business Owner</option></select></label>
-            </div>
-            <p className="tiny muted">Share the temporary password with the person. They can also use “Sign in with Google” if this email is their Google account.</p>
-            <Alert>{err}</Alert>
-            <div className="form-actions"><button type="button" className="btn ghost" onClick={() => setAdd(false)}>Cancel</button><button className="btn primary">Create account</button></div>
-          </form>
+          <AddUser taken={(rows || []).map((u) => u.email.toLowerCase())} onClose={() => setAdd(false)}
+            onCreated={(email) => { setAdd(false); setMsg(`Account created for ${email}.`); load(); }} />
+        </Modal>
+      )}
+      {resetting && (
+        <Modal title={`Reset password – ${resetting.full_name}`} onClose={() => setResetting(null)}>
+          <ResetPassword user={resetting} onClose={() => setResetting(null)} onDone={() => { setMsg(`Password reset for ${resetting.full_name}.`); setResetting(null); }} />
         </Modal>
       )}
     </>

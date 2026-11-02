@@ -439,3 +439,15 @@ td .sk { display: block; }
 @media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
 .status-strip .sk-stat, .rules-strip .sk-stat { width: 150px; }
 .sk-select { display: inline-block; }
+
+/* Real-time validation */
+input.invalid, select.invalid { border-color: #C8213A; background: #FFFBFB; }
+input.invalid:focus, select.invalid:focus { outline-color: #F3C9D1; }
+input.valid { border-color: #7CC3A1; }
+.field-error { display: block; color: #A3122A; font-size: 12px; font-weight: 500; line-height: 1.35; margin-top: 2px; }
+.field-error::before { content: "! "; font-weight: 700; }
+.pw-checks { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.pw-checks li.ok { color: var(--green); }
+.fx-input { position: relative; }
+.fx-input.invalid { border-color: #C8213A; background: #FFFBFB; }
+.fx-error { position: absolute; top: calc(100% + 4px); right: 0; white-space: nowrap; font-size: 11.5px; font-weight: 500; color: #A3122A; background: #fff; padding: 2px 6px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.08); z-index: 3; }

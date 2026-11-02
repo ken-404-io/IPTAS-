@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, setSession } from "../api.js";
 import { Alert } from "../components/ui.jsx";
 import Logo from "../components/Logo.jsx";
+import { useValidation, FieldError, checkEmail } from "../components/validation.jsx";
 
 // Loads Google's sign-in script once and renders the "Sign in with Google" button
 function GoogleButton({ clientId, onCredential }) {
@@ -32,9 +33,12 @@ export default function Login({ onLogin }) {
   const [busy, setBusy] = useState(false);
   const [googleId, setGoogleId] = useState(null);
   useEffect(() => { api("/auth/config").then((c) => setGoogleId(c.google_client_id)).catch(() => {}); }, []);
+  const v = useValidation({ email, password }, (x) => ({ email: checkEmail(x.email), password: x.password ? "" : "Password is required." }));
   const finish = ({ token, user }) => { setSession(token, user); onLogin(user); };
   const submit = async (e) => {
-    e.preventDefault(); setErr(""); setBusy(true);
+    e.preventDefault(); setErr(""); v.touchAll();
+    if (!v.valid) return;
+    setBusy(true);
     try { finish(await api("/auth/login", { method: "POST", body: { email, password } })); }
     catch (e2) { setErr(e2.message); } finally { setBusy(false); }
   };
@@ -58,13 +62,13 @@ export default function Login({ onLogin }) {
           </ul>
         </div>
       </div>
-      <form className="login-card" onSubmit={submit}>
+      <form className="login-card" onSubmit={submit} noValidate>
         <div className="login-logo"><Logo size={44} /><span>IPTAS</span></div>
         <h2>Welcome back</h2>
         <p className="muted">Log in to manage payroll.</p>
         <Alert>{err}</Alert>
-        <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required /></label>
-        <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
+        <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" {...v.bind("email")} /><FieldError name="email" msg={v.shown("email")} /></label>
+        <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" {...v.bind("password")} /><FieldError name="password" msg={v.shown("password")} /></label>
         <button className="btn primary full" disabled={busy}>{busy ? "Logging in…" : "Log in"}</button>
         {googleId && (<>
           <div className="or"><span>or</span></div>

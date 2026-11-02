@@ -124,9 +124,8 @@ app.get("/api/users", auth, ownerOnly, wrap(async (req, res) => {
 
 app.post("/api/users", auth, ownerOnly, wrap(async (req, res) => {
   const { full_name, email, password, role } = req.body || {};
-  if (!full_name || !email || !password) return bad(res, "Name, email and password are required.");
+  const e = nameError(full_name, "Full name") || emailError(email) || passwordError(password); if (e) return bad(res, e);
   if (!["owner", "admin"].includes(role)) return bad(res, "Role must be owner or admin.");
-  if (password.length < 8) return bad(res, "Password must be at least 8 characters.");
   const exists = await db.query("SELECT 1 FROM users WHERE lower(email)=lower($1)", [email]);
   if (exists.rowCount) return bad(res, "A user with this email already exists.");
   const { rows } = await db.query(
@@ -144,9 +143,9 @@ app.put("/api/users/:id", auth, ownerOnly, wrap(async (req, res) => {
   if (!["owner", "admin"].includes(role)) return bad(res, "Role must be owner or admin.");
   if (!["active", "inactive"].includes(status)) return bad(res, "Status must be active or inactive.");
   if (id === req.user.user_id && (status !== "active" || role !== "owner")) return bad(res, "You cannot deactivate or demote your own account.");
+  if (password) { const pe = passwordError(password); if (pe) return bad(res, pe); }
   await db.query("UPDATE users SET role=$1, status=$2 WHERE user_id=$3", [role, status, id]);
   if (password) {
-    if (password.length < 8) return bad(res, "Password must be at least 8 characters.");
     await db.query("UPDATE users SET password_hash=$1 WHERE user_id=$2", [bcrypt.hashSync(password, 10), id]);
     failed.delete(id);
   }
@@ -159,13 +158,47 @@ app.put("/api/users/:id", auth, ownerOnly, wrap(async (req, res) => {
 // ---------- employees ----------
 const EMP_FIELDS = ["tracker_user_id", "full_name", "email", "employment_type", "pay_rate", "currency", "overtime_eligible", "status", "date_hired"];
 
-function validateEmployee(b) {
-  if (!b.full_name || !b.email) return "Full name and email are required.";
-  if (!/^\S+@\S+\.\S+$/.test(b.email)) return "Please enter a valid email address.";
-  if (!["hourly", "fixed"].includes(b.employment_type)) return "Employment type must be hourly or fixed.";
-  if (!(Number(b.pay_rate) >= 0)) return "Pay rate must be a positive number.";
-  if (!["CAD", "USD"].includes(b.currency)) return "Currency must be CAD or USD.";
+// ---------- validation (same rules as the forms in the browser) ----------
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const NAME_RE = /^[\p{L}][\p{L} .,'’-]*$/u;
+function nameError(v, label) {
+  const s = String(v || "").trim();
+  if (!s) return `${label} is required.`;
+  if (s.length < 2 || s.length > 100) return `${label} must be 2 to 100 characters.`;
+  if (!NAME_RE.test(s)) return `${label} can only contain letters, spaces, periods, apostrophes and hyphens.`;
   return null;
+}
+function emailError(v) {
+  const s = String(v || "").trim();
+  if (!s) return "Email is required.";
+  if (s.length > 100 || !EMAIL_RE.test(s)) return "Please enter a valid email address (100 characters or fewer).";
+  return null;
+}
+function passwordError(pw) {
+  pw = String(pw || "");
+  if (pw.length < 8 || pw.length > 72 || !/[A-Za-z]/.test(pw) || !/\d/.test(pw)) return "Password must be 8 to 72 characters with a letter and a number.";
+  return null;
+}
+const decimals = (v) => (String(v).split(".")[1] || "").length;
+
+function validateEmployee(b) {
+  const e = nameError(b.full_name, "Full name") || emailError(b.email); if (e) return e;
+  if (!["hourly", "fixed"].includes(b.employment_type)) return "Employment type must be hourly or fixed.";
+  const rate = Number(b.pay_rate), max = b.employment_type === "hourly" ? 500 : 100000;
+  if (!(rate > 0) || rate > max || decimals(b.pay_rate) > 2) return `Pay rate must be more than 0 and at most ${max}, with up to 2 decimals.`;
+  if (!["CAD", "USD"].includes(b.currency)) return "Currency must be CAD or USD.";
+  if (b.tracker_user_id && (/\s/.test(b.tracker_user_id) || String(b.tracker_user_id).length > 50)) return "The tracker user ID must be up to 50 characters with no spaces.";
+  if (b.date_hired && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.date_hired).slice(0, 10))) return "Enter a valid date hired.";
+  if (!["active", "inactive"].includes(b.status)) return "Status must be active or inactive.";
+  return null;
+}
+// Another employee with the same email or tracker ID (case-insensitive email)
+async function employeeConflict(b, selfId) {
+  const r = await db.query(
+    "SELECT lower(email)=lower($1) AS email, (tracker_user_id IS NOT NULL AND tracker_user_id=$2) AS tracker FROM employees WHERE employee_id <> $3 AND (lower(email)=lower($1) OR tracker_user_id=$2) LIMIT 1",
+    [String(b.email).trim(), b.tracker_user_id || null, selfId || 0]);
+  if (!r.rows[0]) return null;
+  return r.rows[0].email ? "Another employee already uses this email." : "Another employee already has this tracker user ID.";
 }
 
 app.get("/api/employees", auth, wrap(async (req, res) => {
@@ -175,7 +208,8 @@ app.get("/api/employees", auth, wrap(async (req, res) => {
 
 app.post("/api/employees", auth, wrap(async (req, res) => {
   const b = { overtime_eligible: true, status: "active", ...req.body };
-  const err = validateEmployee(b); if (err) return bad(res, err);
+  const err = validateEmployee(b) || (await employeeConflict(b, 0)); if (err) return bad(res, err);
+  b.full_name = b.full_name.trim(); b.email = b.email.trim();
   if (!b.date_hired) b.date_hired = new Date().toISOString().slice(0, 10);
   if (!b.tracker_user_id) b.tracker_user_id = null;
   const { rows } = await db.query(
@@ -190,7 +224,8 @@ app.put("/api/employees/:id", auth, wrap(async (req, res) => {
   const old = (await db.query("SELECT * FROM employees WHERE employee_id=$1", [id])).rows[0];
   if (!old) return res.status(404).json({ error: "Employee not found." });
   const b = { ...old, ...req.body };
-  const err = validateEmployee(b); if (err) return bad(res, err);
+  const err = validateEmployee(b) || (await employeeConflict(b, id)); if (err) return bad(res, err);
+  b.full_name = b.full_name.trim(); b.email = b.email.trim();
   if (!b.tracker_user_id) b.tracker_user_id = null;
   const { rows } = await db.query(
     `UPDATE employees SET ${EMP_FIELDS.map((f, i) => `${f}=$${i + 1}`).join(",")} WHERE employee_id=$${EMP_FIELDS.length + 1} RETURNING *`,
@@ -315,13 +350,15 @@ app.post("/api/rules", auth, ownerOnly, wrap(async (req, res) => {
   const b = req.body || {};
   const nums = ["overtime_threshold", "overtime_multiplier", "cpp_rate", "ei_rate"];
   for (const n of nums) if (!(Number(b[n]) >= 0)) return bad(res, `Please enter a valid value for ${n.replace(/_/g, " ")}.`);
-  if (Number(b.overtime_threshold) <= 0 || Number(b.overtime_threshold) > 24 || Number(b.overtime_multiplier) < 1)
-    return bad(res, "Overtime starts after 1 to 24 hours a day, and the multiplier must be at least 1.");
+  if (Number(b.overtime_threshold) < 1 || Number(b.overtime_threshold) > 24 || Number(b.overtime_multiplier) < 1 || Number(b.overtime_multiplier) > 3)
+    return bad(res, "Overtime starts after 1 to 24 hours a day, and the multiplier must be between 1 and 3.");
+  if (b.rule_name && String(b.rule_name).trim().length > 50) return bad(res, "The rule name must be 50 characters or fewer.");
+  if (b.effective_date && (!/^\d{4}-\d{2}-\d{2}$/.test(b.effective_date) || isNaN(new Date(b.effective_date + "T00:00:00Z")))) return bad(res, "Enter a valid effective date.");
   if (Number(b.cpp_rate) > 0.2 || Number(b.ei_rate) > 0.2) return bad(res, "Enter CPP and EI rates as decimals (e.g. 0.0595 for 5.95%).");
   const { rows } = await db.query(
     `INSERT INTO pay_rules (rule_name, overtime_threshold, overtime_multiplier, cpp_rate, ei_rate, effective_date)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [b.rule_name || "Updated rules", ...nums.map((n) => b[n]), b.effective_date || new Date().toISOString().slice(0, 10)]);
+    [String(b.rule_name || "").trim() || "Updated rules", ...nums.map((n) => b[n]), b.effective_date || new Date().toISOString().slice(0, 10)]);
   await audit(req.user.user_id, "UPDATE_PAY_RULES", "pay_rules", rows[0].rule_id, null, rows[0]);
   res.status(201).json(rows[0]);
 }));

@@ -4,6 +4,7 @@ import { PageHeader, Alert, Empty, PeriodSelect, Status, Modal } from "../compon
 import { SkRows, SkStat } from "../components/Skeleton.jsx";
 import usePeriods from "../components/usePeriods.js";
 import Icon from "../components/Icon.jsx";
+import { checkNumber } from "../components/validation.jsx";
 
 function Payslip({ i }) {
   return (
@@ -38,16 +39,19 @@ export default function Payroll({ user }) {
     } catch (e) { setErr(e.message); } finally { setBusy(""); }
   };
   const p = data?.period; const items = data?.items || [];
+  const fxError = data?.has_usd ? checkNumber(fx, { label: "USD → CAD rate", min: 0.5, max: 5, decimals: 4 }) : "";
   const sum = (k) => items.reduce((a, i) => a + Number(i[k]), 0);
   return (
     <>
       <PageHeader title="Payroll" subtitle="Compute gets the latest hours from Clockify, applies the pay rules, then the Owner approves.">
         <PeriodSelect periods={periods} value={periodId} onChange={setPeriodId} />
         {p && p.status !== "approved" && data?.has_usd && (
-          <label className="fx-input" title="Exchange rate used to convert USD pay to CAD for this payroll"><span className="label">USD → CAD</span>
-            <input type="number" step="0.0001" min="0.5" max="5" value={fx} onChange={(e) => setFx(e.target.value)} aria-label="USD to CAD rate" /></label>
+          <label className={"fx-input" + (fxError ? " invalid" : "")} title="Exchange rate used to convert USD pay to CAD for this payroll"><span className="label">USD → CAD</span>
+            <input type="number" step="0.0001" min="0.5" max="5" inputMode="decimal" value={fx} onChange={(e) => setFx(e.target.value)} aria-label="USD to CAD rate"
+              aria-invalid={fxError ? true : undefined} aria-describedby={fxError ? "err-fx" : undefined} />
+            {fxError && <span id="err-fx" className="fx-error" role="alert">{fxError}</span>}</label>
         )}
-        {p && p.status !== "approved" && <button className="btn dark" onClick={() => act("compute")} disabled={!!busy}><Icon name="calc" /> {busy === "compute" ? "Syncing & computing…" : p.status === "computed" ? "Recompute" : "Compute payroll"}</button>}
+        {p && p.status !== "approved" && <button className="btn dark" onClick={() => act("compute")} disabled={!!busy || !!fxError} title={fxError || undefined}><Icon name="calc" /> {busy === "compute" ? "Syncing & computing…" : p.status === "computed" ? "Recompute" : "Compute payroll"}</button>}
         {p && p.status === "computed" && user.role === "owner" && <button className="btn primary" onClick={() => act("approve")} disabled={!!busy}><Icon name="check" /> {busy === "approve" ? "Approving…" : "Approve payroll"}</button>}
       </PageHeader>
       <Alert>{err}</Alert><Alert kind="success">{msg}</Alert>
