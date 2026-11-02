@@ -124,13 +124,13 @@ erDiagram
 |---|---|
 | `users` | System accounts that log in (Owner, Payroll Admin) |
 | `employees` | Staff who get paid (hourly or fixed, CAD or USD) |
-| `time_logs` | Hours worked, synced from the time tracker (Clockify or demo data) |
+| `time_logs` | Hours worked. `source` is `clockify` (synced from the API), `manual` (added by a user) or `demo` (sample data) |
 | `pay_periods` | Two-week pay periods (open, then computed, then approved) |
 | `pay_rules` | Overtime, CPP/EI deduction rates and USD-to-CAD rate |
 | `payroll` | One computed pay record per employee per pay period |
 | `payroll_reports` | Log of PDF/Excel reports generated |
 | `audit_log` | Who did what, and when |
-| `settings` | App settings (company name, API key, last sync) |
+| `settings` | App settings: company name, storefront URL, business time zone, Clockify key and workspace, demo mode, last sync |
 
 ## Relationships
 

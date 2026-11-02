@@ -63,7 +63,8 @@ async function seedIfEmpty() {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, e);
   }
   await db.query(`INSERT INTO settings (key,value) VALUES
-    ('company_name','Northern Goods Co.'), ('storefront_url','https://www.shopify.com')
+    ('company_name','Northern Goods Co.'), ('storefront_url','https://www.shopify.com'),
+    ('timezone','America/Toronto'), ('demo_mode','on')
     ON CONFLICT (key) DO NOTHING`);
 
   await ensurePayPeriods();

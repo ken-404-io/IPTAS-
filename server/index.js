@@ -8,7 +8,7 @@ const rateLimit = require("express-rate-limit");
 const db = require("./db");
 const { migrate, seedIfEmpty, ensurePayPeriods } = require("./seed");
 const { computePay } = require("./payroll");
-const { syncTimeLogs, getApiKey } = require("./timetracker");
+const { syncTimeLogs, testConnection, getApiKey, getTimezone, isValidTimezone, demoModeOn, ClockifyError } = require("./timetracker");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -28,16 +28,22 @@ async function audit(userId, action, table, recordId, oldValue, newValue) {
       newValue == null ? null : typeof newValue === "string" ? newValue : JSON.stringify(newValue)]);
 }
 
-function auth(req, res, next) {
+async function auth(req, res, next) {
   const h = req.headers.authorization || "";
   const token = h.startsWith("Bearer ") ? h.slice(7) : null;
   if (!token) return res.status(401).json({ error: "Please log in." });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
-    next();
   } catch {
-    res.status(401).json({ error: "Your session has expired. Please log in again." });
+    return res.status(401).json({ error: "Your session has expired. Please log in again." });
   }
+  try {
+    // A deactivated account (or a changed role) takes effect immediately, not when the token expires
+    const u = (await db.query("SELECT role, status FROM users WHERE user_id=$1", [req.user.user_id])).rows[0];
+    if (!u || u.status !== "active") return res.status(401).json({ error: "This account is no longer active." });
+    req.user.role = u.role;
+    next();
+  } catch (e) { next(e); }
 }
 const ownerOnly = (req, res, next) =>
   req.user.role === "owner" ? next() : res.status(403).json({ error: "Only the Business Owner can do this." });
@@ -95,6 +101,8 @@ app.put("/api/users/:id", auth, ownerOnly, wrap(async (req, res) => {
   const old = (await db.query("SELECT user_id, full_name, email, role, status FROM users WHERE user_id=$1", [id])).rows[0];
   if (!old) return res.status(404).json({ error: "User not found." });
   const { role = old.role, status = old.status, password } = req.body || {};
+  if (!["owner", "admin"].includes(role)) return bad(res, "Role must be owner or admin.");
+  if (!["active", "inactive"].includes(status)) return bad(res, "Status must be active or inactive.");
   if (id === req.user.user_id && (status !== "active" || role !== "owner")) return bad(res, "You cannot deactivate or demote your own account.");
   await db.query("UPDATE users SET role=$1, status=$2 WHERE user_id=$3", [role, status, id]);
   if (password) {
@@ -172,7 +180,55 @@ app.get("/api/timelogs", auth, wrap(async (req, res) => {
     `SELECT t.*, e.full_name FROM time_logs t JOIN employees e ON e.employee_id=t.employee_id
       WHERE ${where} ORDER BY t.work_date DESC, e.full_name`, params);
   const last = await db.query("SELECT value FROM settings WHERE key='last_sync'");
-  res.json({ period: p, logs: rows, last_sync: last.rows[0]?.value ? JSON.parse(last.rows[0].value) : null });
+  res.json({
+    period: p, logs: rows, last_sync: last.rows[0]?.value ? JSON.parse(last.rows[0].value) : null,
+    timezone: await getTimezone(), clockify_connected: !!(await getApiKey()), demo_mode: await demoModeOn(),
+  });
+}));
+
+// When hours change after payroll was computed, that payroll is out of date: clear it so it must be recomputed
+async function invalidatePayroll(periodId) {
+  const r = await db.query("UPDATE pay_periods SET status='open' WHERE period_id=$1 AND status='computed' RETURNING period_id", [periodId]);
+  if (r.rowCount) await db.query("DELETE FROM payroll WHERE period_id=$1", [periodId]);
+  return r.rowCount > 0;
+}
+
+const isDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s + "T00:00:00Z"));
+
+// Manual entry: for corrections or hours not tracked in Clockify
+app.post("/api/timelogs", auth, wrap(async (req, res) => {
+  const { employee_id, work_date, hours_worked, project } = req.body || {};
+  const hours = Number(hours_worked);
+  if (!employee_id) return bad(res, "Select an employee.");
+  if (!isDate(work_date)) return bad(res, "Enter a valid date.");
+  if (!(hours > 0 && hours <= 24)) return bad(res, "Hours must be more than 0 and at most 24.");
+  const emp = (await db.query("SELECT employee_id, full_name FROM employees WHERE employee_id=$1", [employee_id])).rows[0];
+  if (!emp) return bad(res, "Employee not found.");
+  const p = (await db.query("SELECT * FROM pay_periods WHERE $1 BETWEEN start_date AND end_date", [work_date])).rows[0];
+  if (!p) return bad(res, "That date is not inside any pay period.");
+  if (p.status === "approved") return bad(res, "That pay period is already approved and locked.");
+  const { rows } = await db.query(
+    `INSERT INTO time_logs (employee_id, tracker_entry_id, work_date, hours_worked, project, source)
+     VALUES ($1, 'manual-' || md5(random()::text || clock_timestamp()::text), $2, $3, $4, 'manual') RETURNING *`,
+    [emp.employee_id, work_date, Math.round(hours * 100) / 100, (project || "").trim().slice(0, 100) || null]);
+  const reset = await invalidatePayroll(p.period_id);
+  await audit(req.user.user_id, "ADD_TIME_ENTRY", "time_logs", rows[0].log_id, null,
+    { employee: emp.full_name, work_date, hours: rows[0].hours_worked, note: rows[0].project });
+  res.status(201).json({ ...rows[0], payroll_reset: reset });
+}));
+
+app.delete("/api/timelogs/:id", auth, wrap(async (req, res) => {
+  const l = (await db.query(
+    `SELECT t.*, e.full_name, p.period_id, p.status AS period_status FROM time_logs t JOIN employees e ON e.employee_id=t.employee_id
+       LEFT JOIN pay_periods p ON t.work_date BETWEEN p.start_date AND p.end_date WHERE t.log_id=$1`, [req.params.id])).rows[0];
+  if (!l) return res.status(404).json({ error: "Time entry not found." });
+  if (l.source !== "manual") return bad(res, "Only manual entries can be deleted here. Change Clockify entries in Clockify, then sync again.");
+  if (l.period_status === "approved") return bad(res, "That pay period is already approved and locked.");
+  await db.query("DELETE FROM time_logs WHERE log_id=$1", [l.log_id]);
+  const reset = l.period_id ? await invalidatePayroll(l.period_id) : false;
+  await audit(req.user.user_id, "DELETE_TIME_ENTRY", "time_logs", l.log_id,
+    { employee: l.full_name, work_date: l.work_date, hours: l.hours_worked, note: l.project }, null);
+  res.json({ ok: true, payroll_reset: reset });
 }));
 
 app.post("/api/timelogs/sync", auth, wrap(async (req, res) => {
@@ -183,10 +239,12 @@ app.post("/api/timelogs/sync", auth, wrap(async (req, res) => {
   try {
     result = await syncTimeLogs(p.start_date, p.end_date);
   } catch (e) {
+    if (!(e instanceof ClockifyError)) throw e;
     await audit(req.user.user_id, "SYNC_FAILED", "time_logs", p.period_id, null, e.message);
-    return res.status(502).json({ error: "Could not reach the time-tracker: " + e.message });
+    return res.status(502).json({ error: "Time-log sync failed: " + e.message });
   }
-  const info = { ...result, at: new Date().toISOString(), period: `${p.start_date} to ${p.end_date}` };
+  const payroll_reset = await invalidatePayroll(p.period_id);
+  const info = { ...result, payroll_reset, at: new Date().toISOString(), period: `${p.start_date} to ${p.end_date}` };
   await db.query("INSERT INTO settings (key,value) VALUES ('last_sync',$1) ON CONFLICT (key) DO UPDATE SET value=$1", [JSON.stringify(info)]);
   await audit(req.user.user_id, "SYNC_TIME_LOGS", "time_logs", p.period_id, null, info);
   res.json(info);
@@ -339,23 +397,74 @@ app.get("/api/audit", auth, ownerOnly, wrap(async (req, res) => {
 }));
 
 // ---------- settings ----------
+const setSetting = (k, v) => db.query("INSERT INTO settings (key,value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=$2", [k, v]);
+
 app.get("/api/settings", auth, wrap(async (req, res) => {
-  const s = Object.fromEntries((await db.query("SELECT key,value FROM settings WHERE key IN ('company_name','storefront_url')")).rows.map((r) => [r.key, r.value]));
+  const s = Object.fromEntries((await db.query(
+    "SELECT key,value FROM settings WHERE key IN ('company_name','storefront_url','clockify_workspace_id')")).rows.map((r) => [r.key, r.value]));
   const key = await getApiKey();
-  res.json({ ...s, clockify_connected: !!key, clockify_from_env: !!process.env.CLOCKIFY_API_KEY, clockify_key_hint: key ? "••••" + key.slice(-4) : "" });
+  const sample = (await db.query(
+    "SELECT (SELECT COUNT(*) FROM employees WHERE tracker_user_id LIKE 'demo-%')::int AS employees, (SELECT COUNT(*) FROM time_logs WHERE source='demo')::int AS logs")).rows[0];
+  res.json({
+    ...s, timezone: await getTimezone(), demo_mode: await demoModeOn(), sample_data: sample,
+    clockify_connected: !!key, clockify_from_env: !!process.env.CLOCKIFY_API_KEY, clockify_key_hint: key ? "••••" + key.slice(-4) : "",
+  });
 }));
 
 app.put("/api/settings", auth, ownerOnly, wrap(async (req, res) => {
   const b = req.body || {};
-  for (const k of ["company_name", "storefront_url"]) {
-    if (b[k] !== undefined) await db.query("INSERT INTO settings (key,value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=$2", [k, String(b[k]).trim()]);
-  }
+  if (b.storefront_url && !/^https?:\/\/\S+$/i.test(String(b.storefront_url).trim())) return bad(res, "The storefront URL must start with http:// or https://");
+  if (b.timezone !== undefined && !isValidTimezone(b.timezone)) return bad(res, "Unknown time zone.");
+  const note = {};
   if (b.clockify_api_key !== undefined) {
-    await db.query("INSERT INTO settings (key,value) VALUES ('clockify_api_key',$1) ON CONFLICT (key) DO UPDATE SET value=$1", [String(b.clockify_api_key).trim()]);
+    const key = String(b.clockify_api_key).trim();
+    if (key) {
+      // Check the key works before saving it
+      try { const t = await testConnection(key); note.clockify = `connected to ${t.workspace.name}`; }
+      catch (e) { if (e instanceof ClockifyError) return bad(res, "Key not saved: " + e.message); throw e; }
+    }
+    await setSetting("clockify_api_key", key);
+    if (!key) await db.query("DELETE FROM settings WHERE key='clockify_workspace_id'");
+  }
+  for (const k of ["company_name", "storefront_url", "timezone", "clockify_workspace_id"]) {
+    if (b[k] !== undefined) await setSetting(k, String(b[k]).trim());
   }
   await audit(req.user.user_id, "UPDATE_SETTINGS", "settings", null, null,
-    { ...b, clockify_api_key: b.clockify_api_key === undefined ? undefined : b.clockify_api_key ? "(updated)" : "(removed - demo mode)" });
+    { ...b, ...note, clockify_api_key: b.clockify_api_key === undefined ? undefined : b.clockify_api_key ? "(updated)" : "(removed)" });
   res.json({ ok: true });
+}));
+
+// Test the Clockify connection and show how Clockify users match employees
+app.post("/api/settings/clockify-test", auth, ownerOnly, wrap(async (req, res) => {
+  const key = String(req.body?.key || "").trim() || (await getApiKey());
+  if (!key) return bad(res, "Enter a Clockify API key first.");
+  try { res.json(await testConnection(key)); }
+  catch (e) { if (e instanceof ClockifyError) return res.status(502).json({ error: e.message }); throw e; }
+}));
+
+// Remove the starter sample data so the system can be used for real payroll
+app.post("/api/settings/clear-sample-data", auth, ownerOnly, wrap(async (req, res) => {
+  const client = await db.pool.connect();
+  let out;
+  try {
+    await client.query("BEGIN");
+    const ids = (await client.query("SELECT employee_id FROM employees WHERE tracker_user_id LIKE 'demo-%'")).rows.map((r) => r.employee_id);
+    const pay = await client.query("DELETE FROM payroll WHERE employee_id = ANY($1)", [ids]);
+    const logs = await client.query("DELETE FROM time_logs WHERE source='demo' OR employee_id = ANY($1)", [ids]);
+    const emps = await client.query("DELETE FROM employees WHERE employee_id = ANY($1)", [ids]);
+    // Pay periods left with no payroll go back to open, and their report history is cleared
+    const empty = "SELECT period_id FROM pay_periods p WHERE NOT EXISTS (SELECT 1 FROM payroll pr WHERE pr.period_id=p.period_id)";
+    await client.query(`DELETE FROM payroll_reports WHERE period_id IN (${empty})`);
+    await client.query(`UPDATE pay_periods SET status='open' WHERE period_id IN (${empty})`);
+    await client.query("DELETE FROM settings WHERE key='last_sync'");
+    await client.query("INSERT INTO settings (key,value) VALUES ('demo_mode','off') ON CONFLICT (key) DO UPDATE SET value='off'");
+    await client.query("COMMIT");
+    out = { employees: emps.rowCount, time_logs: logs.rowCount, payroll: pay.rowCount };
+  } catch (e) {
+    await client.query("ROLLBACK"); throw e;
+  } finally { client.release(); }
+  await audit(req.user.user_id, "CLEAR_SAMPLE_DATA", "employees", null, null, out);
+  res.json(out);
 }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));

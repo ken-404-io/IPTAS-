@@ -41,6 +41,26 @@ The database tables and starter data are created automatically on the first star
    - Environment variables: `DATABASE_URL` (Neon string), `JWT_SECRET` (any long random text), optional `CLOCKIFY_API_KEY`.
 3. Open the Render URL and log in with an account above.
 
-## Connecting Clockify
-Log in as the Owner → **Settings** → paste the Clockify API key (Clockify → Profile settings → API).
-Employees are matched to Clockify users by tracker user ID or by email address.
+## Connecting Clockify (real time logs)
+1. In Clockify, a **workspace admin** opens Profile settings → API → Generate, and copies the key.
+   (A non-admin key works too, but then only that person's own hours are synced.)
+2. In IPTAS, log in as the Owner → **Settings** → paste the key → **Save key**. The key is checked before it is saved,
+   and **Test connection** lists every Clockify user and the employee they are matched to.
+3. Make sure each worker is an employee in IPTAS with the **same email** as in Clockify (or paste their Clockify user ID
+   into "Time-tracker user ID"). Unmatched users are listed after each sync.
+4. Set the **business time zone** in Settings. Hours are put on the work date in that time zone.
+5. On **Time Logs**, pick the pay period and click **Sync time logs**.
+
+How the sync behaves:
+- Every page of results is fetched, so large teams and many short entries are all included.
+- Entries deleted or moved in Clockify are removed on the next sync; running timers are skipped until they stop.
+- Syncing again after payroll was computed clears that (unapproved) payroll so it must be recomputed with the new hours.
+- Approved pay periods are locked and never change.
+- **Add entry** on Time Logs records hours by hand (corrections, untracked work). Manual entries are kept on re-sync and are audit-logged.
+- Workspaces on a regional Clockify server: set `CLOCKIFY_API_URL` (e.g. `https://euc1.clockify.me/api/v1`).
+
+## Going live with real data
+The first start loads sample employees, hours and payroll history for demonstration. Before running real payroll:
+Owner → **Settings** → **Remove sample data**. This deletes only the sample employees and their hours and payroll,
+and turns off demo mode (without a Clockify key, sync then asks you to connect Clockify instead of creating sample hours).
+User accounts, pay rules and settings are kept. Change the default account passwords under **User Accounts**.
