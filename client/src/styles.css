@@ -426,3 +426,16 @@ button.nav-link:hover { background: #2C2C2C; color: #fff; }
 .assistant-foot .btn { min-width: 72px; }
 @media (max-width: 780px) { .assistant { right: 16px; bottom: 16px; } }
 @media (prefers-reduced-motion: reduce) { .assistant-dots i, .assistant-bubble, .assistant-msg { animation: none; opacity: 1; } }
+
+/* Skeleton loading */
+.sk { display: block; background: linear-gradient(90deg, #ECECEC 0%, #F6F6F6 40%, #ECECEC 80%); background-size: 300% 100%; animation: sk-shimmer 1.3s ease-in-out infinite; }
+td .sk { display: block; }
+.sk-body tr:hover { background: transparent; }
+.sk-stat { display: flex; flex-direction: column; gap: 9px; }
+.kpi.sk-tile { gap: 0; }
+.sum-card.sk-card { cursor: default; }
+.sum-card.sk-card:hover { box-shadow: none; border-color: var(--line); }
+@keyframes sk-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+.status-strip .sk-stat, .rules-strip .sk-stat { width: 150px; }
+.sk-select { display: inline-block; }

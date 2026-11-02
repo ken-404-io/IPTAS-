@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, hrs, fmtDate, fmtDateTime } from "../api.js";
 import { PageHeader, Alert, Empty, PeriodSelect, Status, Modal } from "../components/ui.jsx";
+import { Sk, SkRows, SkStat } from "../components/Skeleton.jsx";
 import DailyChart, { scaleFor, REG_COLOR, OT_COLOR } from "../components/DailyChart.jsx";
 import usePeriods from "../components/usePeriods.js";
 import Icon from "../components/Icon.jsx";
@@ -83,6 +84,11 @@ export default function TimeLogs() {
       {locked && <Alert kind="info">This pay period is approved and locked, so its time logs can no longer change.</Alert>}
       {data?.last_sync && <p className="tiny muted meta-line">Last sync {fmtDateTime(data.last_sync.at)} · {data.last_sync.mode === "clockify" ? "Clockify" : "Sample data"} · {data.last_sync.period}</p>}
       {/* Employee summary: one card per employee (click to filter), plus the period total */}
+      {!data && (
+        <section className="summary-row" aria-busy="true" aria-label="Loading hours">
+          {[0, 1, 2, 3, 4].map((i) => <div key={i} className={"sum-card sk-card" + (i === 0 ? " total" : "")}><SkStat big={20} /><Sk w="100%" h={6} r={999} /></div>)}
+        </section>
+      )}
       {ids.length > 0 && (<>
         <section className="summary-row" aria-label="Hours by employee">
           <div className="sum-card total">
@@ -116,14 +122,14 @@ export default function TimeLogs() {
               {ids.map((id) => <option key={id} value={id}>{totals[id].name}</option>)}
             </select>
             {(q || emp) && <button type="button" className="btn ghost small" onClick={() => { setQ(""); setEmp(""); }}>Clear</button>}
-            <span className="tiny muted count">{days.length} day{days.length === 1 ? "" : "s"} shown</span>
+            {data && <span className="tiny muted count">{days.length} day{days.length === 1 ? "" : "s"} shown</span>}
           </div>
-          {!data ? <div className="loading">Loading…</div> : !days.length ? <Empty>{q || emp ? "No days match the search or filter." : "No time entries in this period."}</Empty> : (
+          {data && !days.length ? <Empty>{q || emp ? "No days match the search or filter." : "No time entries in this period."}</Empty> : (
             <div className="table-wrap tall"><table>
               <colgroup><col style={{ width: "15%" }} /><col style={{ width: "20%" }} /><col /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "11%" }} /></colgroup>
               <thead><tr><th>Date</th><th>Employee</th><th>Time entries{tz ? ` (${tz.split("/").pop().replace(/_/g, " ")} time)` : ""}</th>
                 <th className="num">Total</th><th className="num">Regular</th><th className="num">Overtime</th></tr></thead>
-              <tbody>{days.map((d) => (
+              {!data ? <SkRows rows={8} cols={["text", "text", "lines", "num", "num", "num"]} /> : <tbody>{days.map((d) => (
                 <tr key={d.employee_id + d.work_date} className="click" onClick={() => setPick(d)} title="Show all time entries for this day">
                   <td className="nowrap">{fmtDate(d.work_date)}</td><td><strong>{d.full_name}</strong></td>
                   <td className="tiny entries-cell">{d.entries.slice(0, 3).map((e) => (
@@ -134,9 +140,9 @@ export default function TimeLogs() {
                   <td className="num">{hrs(d.regular)}</td>
                   <td className={"num" + (d.overtime > 0 ? " ot-cell" : "")}>{hrs(d.overtime)}</td>
                 </tr>
-              ))}</tbody>
-              <tfoot><tr><td colSpan="3">Total</td><td className="num">{hrs(days.reduce((a, d) => a + d.hours, 0))}</td>
-                <td className="num">{hrs(days.reduce((a, d) => a + d.regular, 0))}</td><td className="num">{hrs(days.reduce((a, d) => a + d.overtime, 0))}</td></tr></tfoot>
+              ))}</tbody>}
+              {data && <tfoot><tr><td colSpan="3">Total</td><td className="num">{hrs(days.reduce((a, d) => a + d.hours, 0))}</td>
+                <td className="num">{hrs(days.reduce((a, d) => a + d.regular, 0))}</td><td className="num">{hrs(days.reduce((a, d) => a + d.overtime, 0))}</td></tr></tfoot>}
             </table></div>
           )}
       </section>

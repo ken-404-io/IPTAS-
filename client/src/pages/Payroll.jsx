@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, money, hrs, periodLabel } from "../api.js";
 import { PageHeader, Alert, Empty, PeriodSelect, Status, Modal } from "../components/ui.jsx";
+import { SkRows, SkStat } from "../components/Skeleton.jsx";
 import usePeriods from "../components/usePeriods.js";
 import Icon from "../components/Icon.jsx";
 
@@ -50,6 +51,9 @@ export default function Payroll({ user }) {
         {p && p.status === "computed" && user.role === "owner" && <button className="btn primary" onClick={() => act("approve")} disabled={!!busy}><Icon name="check" /> {busy === "approve" ? "Approving…" : "Approve payroll"}</button>}
       </PageHeader>
       <Alert>{err}</Alert><Alert kind="success">{msg}</Alert>
+      {!data && (
+        <div className="status-strip" aria-busy="true">{[0, 1, 2, 3].map((i) => <SkStat key={i} big={16} sub={false} />)}</div>
+      )}
       {p && (
         <div className="status-strip">
           <div><span className="muted">Pay period</span><strong>{periodLabel(p)}</strong></div>
@@ -61,11 +65,11 @@ export default function Payroll({ user }) {
       {p?.status === "computed" && user.role !== "owner" && <Alert kind="info">Waiting for the Business Owner to approve this payroll.</Alert>}
       {p?.status === "approved" && <Alert kind="info"><Icon name="lock" size={14} /> Approved and locked. Payslips keep the amounts and the pay rule used.</Alert>}
       <section className="card flush">
-        {!data ? <div className="loading">Loading…</div> : !items.length ? <Empty>No payroll computed for this period yet. Click “Compute payroll” – it gets the hours from Clockify automatically.</Empty> : (
+        {data && !items.length ? <Empty>No payroll computed for this period yet. Click “Compute payroll” – it gets the hours from Clockify automatically.</Empty> : (
           <div className="table-wrap"><table>
             <colgroup><col /><col style={{ width: "8%" }} /><col style={{ width: "8%" }} /><col style={{ width: "11%" }} /><col style={{ width: "10%" }} /><col style={{ width: "9%" }} /><col style={{ width: "12%" }} /><col style={{ width: "12%" }} /><col style={{ width: "90px" }} /></colgroup>
             <thead><tr><th>Employee</th><th className="num">Reg. hrs</th><th className="num">OT hrs</th><th className="num">Gross</th><th className="num">CPP</th><th className="num">EI</th><th className="num">Net pay</th><th className="num">Net (CAD)</th><th /></tr></thead>
-            <tbody>{items.map((i) => (
+            {!data ? <SkRows rows={8} cols={["two", "num", "num", "num", "num", "num", "num", "num", "text"]} /> : <tbody>{items.map((i) => (
               <tr key={i.payroll_id} className="click" onClick={() => setSlip(i)}>
                 <td><strong>{i.full_name}</strong><div className="tiny muted">{i.employment_type} · {i.currency}</div></td>
                 <td className="num">{hrs(i.regular_hours)}</td><td className="num">{hrs(i.overtime_hours)}</td>
@@ -73,8 +77,8 @@ export default function Payroll({ user }) {
                 <td className="num"><strong>{money(i.net_pay, i.currency)}</strong></td><td className="num">{money(i.net_pay_cad)}</td>
                 <td><span className="link">Payslip</span></td>
               </tr>))}
-            </tbody>
-            <tfoot><tr><td>Total</td><td className="num">{hrs(sum("regular_hours"))}</td><td className="num">{hrs(sum("overtime_hours"))}</td><td colSpan="4" /><td className="num">{money(sum("net_pay_cad"))}</td><td /></tr></tfoot>
+            </tbody>}
+            {data && <tfoot><tr><td>Total</td><td className="num">{hrs(sum("regular_hours"))}</td><td className="num">{hrs(sum("overtime_hours"))}</td><td colSpan="4" /><td className="num">{money(sum("net_pay_cad"))}</td><td /></tr></tfoot>}
           </table></div>
         )}
       </section>

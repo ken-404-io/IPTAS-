@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, money, fmtDate } from "../api.js";
 import { PageHeader, Modal, Alert, Status, Empty } from "../components/ui.jsx";
+import { SkRows } from "../components/Skeleton.jsx";
 import Icon from "../components/Icon.jsx";
 
 const BLANK = { full_name: "", email: "", tracker_user_id: "", employment_type: "hourly", pay_rate: "", currency: "CAD", overtime_eligible: true, status: "active", date_hired: new Date().toISOString().slice(0, 10) };
@@ -58,11 +59,11 @@ export default function Employees() {
       </PageHeader>
       <Alert>{err}</Alert>
       <section className="card flush">
-        {!rows ? <div className="loading">Loading…</div> : !shown.length ? <Empty>No employees found.</Empty> : (
+        {rows && !shown.length ? <Empty>No employees found.</Empty> : (
           <div className="table-wrap"><table>
             <colgroup><col /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "9%" }} /><col style={{ width: "8%" }} /><col style={{ width: "11%" }} /><col style={{ width: "12%" }} /><col style={{ width: "9%" }} /><col style={{ width: "52px" }} /></colgroup>
             <thead><tr><th>Name</th><th>Type</th><th className="num">Pay rate</th><th className="center">Overtime</th><th className="center">CPP / EI</th><th>Tracker ID</th><th>Hired</th><th>Status</th><th /></tr></thead>
-            <tbody>{shown.map((r) => (
+            {!rows ? <SkRows rows={7} cols={["two", "text", "num", "center", "center", "text", "text", "pill", "icon"]} /> : <tbody>{shown.map((r) => (
               <tr key={r.employee_id}>
                 <td><strong>{r.full_name}</strong><div className="tiny muted">{r.email}</div></td>
                 <td>{r.employment_type === "hourly" ? "Hourly" : "Fixed"}</td>
@@ -74,7 +75,7 @@ export default function Employees() {
                 <td><Status value={r.status} /></td>
                 <td><button className="icon-btn" onClick={() => setEdit(r)} aria-label="Edit"><Icon name="edit" /></button></td>
               </tr>))}
-            </tbody>
+            </tbody>}
           </table></div>
         )}
       </section>

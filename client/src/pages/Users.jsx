@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { api, fmtDate } from "../api.js";
 import { PageHeader, Alert, Modal } from "../components/ui.jsx";
+import { Sk } from "../components/Skeleton.jsx";
 import Icon from "../components/Icon.jsx";
 
 export default function Users({ user }) {
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useState(null);
   const [add, setAdd] = useState(false);
   const [f, setF] = useState({ full_name: "", email: "", password: "", role: "admin" });
   const [err, setErr] = useState(""); const [msg, setMsg] = useState("");
@@ -33,7 +34,14 @@ export default function Users({ user }) {
       <Alert>{err}</Alert><Alert kind="success">{msg}</Alert>
       <section className="card flush">
         <ul className="user-list">
-          {rows.map((u) => (
+          {!rows && [0, 1, 2].map((i) => (
+            <li key={i} aria-hidden="true">
+              <Sk w={36} h={36} r={999} />
+              <span className="who-cell"><Sk w="40%" h={13} /><Sk w="55%" h={10} style={{ flexBasis: "100%" }} /></span>
+              <Sk w="70%" h={12} /><Sk w={60} h={12} /><span className="row-actions"><Sk w={100} h={12} /><Sk w={70} h={12} /></span>
+            </li>
+          ))}
+          {(rows || []).map((u) => (
             <li key={u.user_id} className={u.status !== "active" ? "off" : ""} title={`Created ${fmtDate(u.created_at)}`}>
               <span className="avatar-sm">{initials(u.full_name)}</span>
               <span className="who-cell"><strong>{u.full_name}</strong>{u.user_id === user.user_id && <span className="you">You</span>}<span className="tiny muted">{u.email}</span></span>

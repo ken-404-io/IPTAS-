@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, money, hrs, periodLabel, fmtDate, fmtDateTime } from "../api.js";
 import { PageHeader, Alert, Status } from "../components/ui.jsx";
+import { Sk, SkHeader, SkStat } from "../components/Skeleton.jsx";
 import Icon from "../components/Icon.jsx";
 
 function BarList({ rows }) {
@@ -42,7 +43,25 @@ export default function Dashboard({ user }) {
   const [err, setErr] = useState("");
   useEffect(() => { api("/dashboard").then(setD).catch((e) => setErr(e.message)); }, []);
   if (err) return <Alert>{err}</Alert>;
-  if (!d) return <div className="loading">Loading dashboard…</div>;
+  if (!d) return (
+    <div aria-busy="true" aria-label="Loading dashboard">
+      <SkHeader actions={2} />
+      <div className="kpis">{[0, 1, 2, 3].map((i) => <div key={i} className="kpi sk-tile"><SkStat /></div>)}</div>
+      <div className="grid2">
+        <section className="card">
+          <div className="card-head"><Sk w={190} h={16} /><Sk w={120} h={10} /></div>
+          <div className="barlist">{[92, 88, 85, 80, 78, 70, 66, 60].map((w, i) => (
+            <div className="barrow" key={i}><Sk w="80%" h={12} /><Sk w={`${w}%`} h={14} r={999} /><Sk w={40} h={12} style={{ marginLeft: "auto" }} /></div>))}</div>
+        </section>
+        <section className="card">
+          <div className="card-head"><Sk w={200} h={16} /><Sk w={140} h={10} /></div>
+          <div className="colchart">{[70, 95, 40].map((h, i) => <div className="col" key={i}><Sk w={34} h={10} /><Sk w="100%" h={h * 1.4} r={8} style={{ maxWidth: 46 }} /><Sk w={40} h={10} /></div>)}</div>
+          <div className="sync-note"><Sk w="70%" h={11} /></div>
+        </section>
+      </div>
+      <section className="card rules-strip">{[0, 1, 2, 3, 4].map((i) => <SkStat key={i} big={16} sub={false} />)}</section>
+    </div>
+  );
   const t = d.totals;
   return (
     <>

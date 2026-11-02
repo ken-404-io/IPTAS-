@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, fmtDate } from "../api.js";
 import { PageHeader, Alert, Modal } from "../components/ui.jsx";
+import { Sk, SkRows, SkStat } from "../components/Skeleton.jsx";
 import Icon from "../components/Icon.jsx";
 
 const pct = (v) => `${(Number(v) * 100).toFixed(2)}%`;
@@ -39,7 +40,12 @@ export default function PayRules({ user }) {
       </PageHeader>
       <Alert>{err}</Alert><Alert kind="success">{msg}</Alert>
 
-      {!rules ? <div className="loading">Loading…</div> : current && (
+      {!rules ? (
+        <section className="card rules-now" aria-busy="true">
+          <div className="rules-now-head"><Sk w={70} h={10} /><Sk w={190} h={10} /></div>
+          <div className="rules-grid">{[0, 1, 2, 3].map((i) => <div key={i}><SkStat big={26} sub={false} /></div>)}</div>
+        </section>
+      ) : current && (
         <section className="card rules-now">
           <div className="rules-now-head">
             <span className="label">In effect</span>
@@ -66,19 +72,19 @@ export default function PayRules({ user }) {
         <p className="tiny muted">Each payroll keeps the rule version it used, so past payslips never change.</p>
       </details>
 
-      {rules?.length > 0 && (
+      {(!rules || rules.length > 0) && (
         <section className="card flush">
           <div className="card-head pad"><h3>History</h3></div>
           <div className="table-wrap"><table>
             <colgroup><col /><col style={{ width: "18%" }} /><col style={{ width: "13%" }} /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /></colgroup>
             <thead><tr><th>Name</th><th>Effective</th><th className="num">OT after</th><th className="num">OT ×</th><th className="num">CPP</th><th className="num">EI</th></tr></thead>
-            <tbody>{rules.map((r) => (
+            {!rules ? <SkRows rows={2} cols={["text", "text", "num", "num", "num", "num"]} /> : <tbody>{rules.map((r) => (
               <tr key={r.rule_id}>
                 <td>{r.rule_name}{r.rule_id === current?.rule_id && <span className="badge active rule-badge">Current</span>}</td>
                 <td>{fmtDate(r.effective_date)}</td><td className="num">{Number(r.overtime_threshold)} h</td><td className="num">{Number(r.overtime_multiplier)}</td>
                 <td className="num">{pct(r.cpp_rate)}</td><td className="num">{pct(r.ei_rate)}</td>
               </tr>
-            ))}</tbody>
+            ))}</tbody>}
           </table></div>
         </section>
       )}
