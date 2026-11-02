@@ -38,7 +38,7 @@ export default function PayRules({ user }) {
             <fieldset disabled={!owner}>
               {owner && <label>Rule name<input value={f.rule_name} onChange={set("rule_name")} placeholder="e.g. 2027 rates" /></label>}
               <div className="row2">
-                <label>Overtime after (hours per week)<input type="number" step="0.5" min="1" value={f.overtime_threshold} onChange={set("overtime_threshold")} required /></label>
+                <label>Overtime after (hours per day)<input type="number" step="0.5" min="1" max="24" value={f.overtime_threshold} onChange={set("overtime_threshold")} required /></label>
                 <label>Overtime multiplier<input type="number" step="0.05" min="1" value={f.overtime_multiplier} onChange={set("overtime_multiplier")} required /></label>
               </div>
               <div className="row2">
@@ -53,8 +53,8 @@ export default function PayRules({ user }) {
         <section className="card">
           <h3>How pay is computed</h3>
           <ol className="steps">
-            <li><strong>Hourly:</strong> regular hours × rate, plus hours above the weekly threshold × rate × multiplier.</li>
-            <li><strong>Fixed:</strong> the set amount per pay period; overtime (if eligible) uses the equivalent hourly rate.</li>
+            <li><strong>Hourly:</strong> each day, the first hours up to the threshold (6 h) × rate, plus the hours above it × rate × multiplier (overtime is counted per day).</li>
+            <li><strong>Fixed:</strong> the set amount per pay period; overtime (if eligible) uses the equivalent hourly rate = amount ÷ (threshold × 10 working days).</li>
             <li><strong>Deductions:</strong> CPP and EI at the general rates above, for employees paid in CAD (Canadian payroll).</li>
             <li><strong>Currency:</strong> USD pay is converted to CAD with the exchange rate entered when the payroll is computed (saved on each payroll record).</li>
           </ol>

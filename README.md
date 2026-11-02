@@ -9,7 +9,7 @@ MIT421 – Systems Design and Implementation · Final Project · Harold A. Sarmi
 |---|---|
 | 1. Time Tracker API Integration | Syncs employees' time logs from **Clockify** through its REST API (demo mode with sample logs when no API key is set) |
 | 2. Employee Records | Add/edit employees, pay rate, hourly or fixed pay, CAD/USD, overtime eligibility |
-| 3. Salary Computation | Regular + overtime pay (weekly threshold × multiplier), CPP and EI at general rates for CAD employees, USD→CAD conversion at the rate entered when computing; Owner approval locks the payroll |
+| 3. Salary Computation | Regular + overtime pay (daily: first 6 hours a day regular, the rest overtime × multiplier), CPP and EI at general rates for CAD employees, USD→CAD conversion at the rate entered when computing; Owner approval locks the payroll |
 | 4. Hours & Payroll Dashboard | Live hours, overtime and projected payroll cost; payroll history; Shopify storefront link |
 | 5. Payroll Reports | Payroll Summary (PDF/Excel) and Employee Payslips (PDF) per pay period, with report history |
 | 6. User Management & Security | Login with password (bcrypt) or **Sign in with Google**, JWT sessions, roles (Business Owner / Administrator), lockout after 5 failed attempts, audit trail |

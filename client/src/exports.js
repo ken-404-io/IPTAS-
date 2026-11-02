@@ -17,7 +17,7 @@ function header(doc, title, data) {
   doc.text(title, 14, 34);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(90);
   doc.text(`Pay period: ${data.period.start_date} to ${data.period.end_date}    Pay date: ${data.period.pay_date}    Status: ${data.period.status}`, 14, 41);
-  doc.text(`Pay rules: ${data.rule.rule_name} – OT after ${data.rule.overtime_threshold} h/week x ${data.rule.overtime_multiplier}, CPP ${(data.rule.cpp_rate * 100).toFixed(2)}%, EI ${(data.rule.ei_rate * 100).toFixed(2)}%${fx ? `, USD->CAD ${fx}` : ""}`, 14, 47);
+  doc.text(`Pay rules: ${data.rule.rule_name} – OT after ${data.rule.overtime_threshold} h/day x ${data.rule.overtime_multiplier}, CPP ${(data.rule.cpp_rate * 100).toFixed(2)}%, EI ${(data.rule.ei_rate * 100).toFixed(2)}%${fx ? `, USD->CAD ${fx}` : ""}`, 14, 47);
 }
 
 function footer(doc) {
