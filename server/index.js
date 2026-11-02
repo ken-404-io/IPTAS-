@@ -315,6 +315,12 @@ app.post("/api/payroll/:periodId/compute", auth, wrap(async (req, res) => {
           r.cpp_deduction, r.ei_deduction, r.net_pay, r.currency, r.fx_rate, r.net_pay_cad]);
       count++;
     }
+    if (!count) {
+      // Nothing to pay: leave the period open instead of letting an empty payroll be approved and locked
+      await client.query("ROLLBACK");
+      await db.query("UPDATE pay_periods SET status='open' WHERE period_id=$1 AND status='computed' AND NOT EXISTS (SELECT 1 FROM payroll WHERE period_id=$1)", [p.period_id]);
+      return bad(res, "No employee has hours in this pay period, so there is nothing to compute. Sync the time logs (or add entries) for this period first, and check that your employees are matched to Clockify users in Settings.");
+    }
     await client.query("UPDATE pay_periods SET status='computed' WHERE period_id=$1", [p.period_id]);
     await client.query("COMMIT");
   } catch (e) {
@@ -328,6 +334,8 @@ app.post("/api/payroll/:periodId/approve", auth, ownerOnly, wrap(async (req, res
   const p = (await db.query("SELECT * FROM pay_periods WHERE period_id=$1", [req.params.periodId])).rows[0];
   if (!p) return res.status(404).json({ error: "Pay period not found." });
   if (p.status !== "computed") return bad(res, p.status === "approved" ? "Already approved." : "Compute the payroll first.");
+  const n = (await db.query("SELECT COUNT(*)::int AS n FROM payroll WHERE period_id=$1", [p.period_id])).rows[0].n;
+  if (!n) return bad(res, "There is no payroll to approve in this period. Sync the time logs and compute again.");
   await db.query("UPDATE payroll SET status='approved', approved_by=$1, approved_at=NOW() WHERE period_id=$2", [req.user.user_id, p.period_id]);
   await db.query("UPDATE pay_periods SET status='approved' WHERE period_id=$1", [p.period_id]);
   const tot = (await db.query("SELECT COALESCE(SUM(net_pay_cad),0) AS t FROM payroll WHERE period_id=$1", [p.period_id])).rows[0].t;
