@@ -330,3 +330,24 @@ button.nav-link:hover { background: #2C2C2C; color: #fff; }
   .nav-collapsed .nav-link, .nav-collapsed button.nav-link { justify-content: flex-start; padding: 11px 20px; gap: 14px; }
   .nav-collapsed .sidebar .brand { justify-content: flex-start; padding: 0 20px 18px; }
 }
+
+/* Pay Rules (minimal) */
+.rules-now-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.rules-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+.rules-grid > div { display: flex; flex-direction: column; gap: 6px; padding: 2px 20px; border-left: 1px solid var(--line); }
+.rules-grid > div:first-child { padding-left: 0; border-left: 0; }
+.rules-grid strong { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rules-grid strong small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.rules-next { margin: 14px 0 0; }
+.how { padding: 0; }
+.how summary { cursor: pointer; padding: 16px 24px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+.how summary::-webkit-details-marker { display: none; }
+.how summary::after { content: "+"; font-size: 18px; color: var(--muted); }
+.how[open] summary::after { content: "–"; }
+.how ul { margin: 0; padding: 0 24px 0 42px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.how p { margin: 10px 24px 18px; }
+.rule-badge { margin-left: 10px; font-size: 11px; padding: 2px 8px; }
+@media (max-width: 780px) {
+  .rules-grid { grid-template-columns: 1fr 1fr; row-gap: 18px; }
+  .rules-grid > div:nth-child(3) { padding-left: 0; border-left: 0; }
+}
