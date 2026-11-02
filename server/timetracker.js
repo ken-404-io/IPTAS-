@@ -1,34 +1,22 @@
 // Time Tracker API Integration (Module 1): Clockify REST API, with a demo mode for sample data.
 const db = require("./db");
+const { config, isValidTimezone, DEFAULT_TZ } = require("./config");
 
 // Regional Clockify workspaces use a different address, e.g. https://euc1.clockify.me/api/v1
 const clockifyBase = () => (process.env.CLOCKIFY_API_URL || "https://api.clockify.me/api/v1").replace(/\/+$/, "");
 const PAGE_SIZE = 200;
-const DEFAULT_TZ = "America/Toronto";
 
-async function getSetting(key) {
-  const r = await db.query("SELECT value FROM settings WHERE key=$1", [key]);
-  return r.rows[0]?.value ?? null;
-}
+async function getApiKey() { return config.clockifyKey(); }
+async function getTimezone() { return config.timezone(); }
 
-async function getApiKey() {
-  if (process.env.CLOCKIFY_API_KEY) return process.env.CLOCKIFY_API_KEY;
-  return (await getSetting("clockify_api_key")) || "";
-}
-
-async function getTimezone() {
-  const tz = (await getSetting("timezone")) || DEFAULT_TZ;
-  return isValidTimezone(tz) ? tz : DEFAULT_TZ;
-}
-
-function isValidTimezone(tz) {
-  try { new Intl.DateTimeFormat("en-CA", { timeZone: tz }); return true; } catch { return false; }
-}
-
-// Demo mode is on for the starter data and turns off once the owner removes the sample data.
+// Demo mode: while the sample employees exist and Clockify is not connected, sync creates sample hours.
+// Removing the sample data turns it off.
 async function demoModeOn() {
-  return (await getSetting("demo_mode")) !== "off";
+  return (await db.query("SELECT 1 FROM employees WHERE tracker_user_id LIKE 'demo-%' LIMIT 1")).rowCount > 0;
 }
+
+// Where a time entry came from, read from its tracker_entry_id prefix
+const SOURCE_SQL = "CASE WHEN t.tracker_entry_id LIKE 'clockify-%' THEN 'clockify' WHEN t.tracker_entry_id LIKE 'manual-%' THEN 'manual' ELSE 'demo' END";
 
 class ClockifyError extends Error {}
 
@@ -90,22 +78,22 @@ function addDays(dateStr, n) {
   return d.toISOString().slice(0, 10);
 }
 
-async function upsertLog(employeeId, entryId, workDate, start, end, hours, project, source) {
+async function upsertLog(employeeId, entryId, workDate, start, end, hours) {
   await db.query(
-    `INSERT INTO time_logs (employee_id, tracker_entry_id, work_date, start_time, end_time, hours_worked, project, source, synced_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+    `INSERT INTO time_logs (employee_id, tracker_entry_id, work_date, start_time, end_time, hours_worked, synced_at)
+     VALUES ($1,$2,$3,$4,$5,$6,NOW())
      ON CONFLICT (tracker_entry_id) DO UPDATE SET
        employee_id=EXCLUDED.employee_id, work_date=EXCLUDED.work_date, start_time=EXCLUDED.start_time, end_time=EXCLUDED.end_time,
-       hours_worked=EXCLUDED.hours_worked, project=EXCLUDED.project, synced_at=NOW()`,
-    [employeeId, entryId, workDate, start, end, Math.round(hours * 100) / 100, project, source]
+       hours_worked=EXCLUDED.hours_worked, synced_at=NOW()`,
+    [employeeId, entryId, workDate, start, end, Math.round(hours * 100) / 100]
   );
 }
 
-// Workspace to use: the one chosen in Settings, otherwise the key owner's active workspace
+// Workspace to use: CLOCKIFY_WORKSPACE_ID if set, otherwise the key owner's active workspace
 async function pickWorkspace(key) {
   const me = await clockifyGet("/user", key);
   const workspaces = await clockifyGet("/workspaces", key).catch(() => []);
-  const saved = await getSetting("clockify_workspace_id");
+  const saved = config.clockifyWorkspace();
   const ws = (saved && workspaces.some((w) => w.id === saved) ? saved : null) || me.activeWorkspace || me.defaultWorkspace;
   if (!ws) throw new ClockifyError("This Clockify account has no workspace.");
   return { me, ws, workspaces };
@@ -153,8 +141,6 @@ async function syncClockify(key, startDate, endDate) {
   const tz = await getTimezone();
   const { me, ws } = await pickWorkspace(key);
   const { users, adminAccess } = await workspaceUsers(key, ws, me);
-  const projects = await clockifyGetAll(`/workspaces/${ws}/projects`, key).catch(() => []);
-  const projectName = Object.fromEntries(projects.map((p) => [p.id, p.name]));
   const emps = await activeEmployees();
 
   // Ask for one extra day on each side, then keep entries whose local date is inside the period
@@ -181,19 +167,18 @@ async function syncClockify(key, startDate, endDate) {
       const day = localDate(ti.start, tz);
       if (day < startDate || day > endDate) continue;
       const id = "clockify-" + e.id;
-      await upsertLog(emp.employee_id, id, day, ti.start, ti.end, entryHours(ti),
-        projectName[e.projectId] || e.description || null, "clockify");
+      await upsertLog(emp.employee_id, id, day, ti.start, ti.end, entryHours(ti));
       kept.push(id);
       synced++;
     }
     // Entries deleted in Clockify (or moved out of this period) are removed here too
     const del = await db.query(
-      `DELETE FROM time_logs WHERE employee_id=$1 AND source='clockify' AND work_date BETWEEN $2 AND $3 AND NOT (tracker_entry_id = ANY($4))`,
+      `DELETE FROM time_logs WHERE employee_id=$1 AND tracker_entry_id LIKE 'clockify-%' AND work_date BETWEEN $2 AND $3 AND NOT (tracker_entry_id = ANY($4))`,
       [emp.employee_id, startDate, endDate, kept]);
     removed += del.rowCount;
   }
   // Real hours replace any sample hours in this period
-  const demo = await db.query("DELETE FROM time_logs WHERE source='demo' AND work_date BETWEEN $1 AND $2", [startDate, endDate]);
+  const demo = await db.query("DELETE FROM time_logs WHERE tracker_entry_id LIKE 'demo-%' AND work_date BETWEEN $1 AND $2", [startDate, endDate]);
   removed += demo.rowCount;
   return { mode: "clockify", synced, linked, removed, running, unmatched, admin_access: adminAccess, timezone: tz };
 }
@@ -204,8 +189,6 @@ function seeded(str) {
   for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
   return ((h >>> 0) % 1000) / 1000;
 }
-
-const DEMO_PROJECTS = ["Order Fulfillment", "Customer Support", "Product Listings", "Marketing", "Inventory"];
 
 async function syncDemo(startDate, endDate) {
   const emps = (await db.query("SELECT employee_id, tracker_user_id, date_hired FROM employees WHERE status='active'")).rows;
@@ -225,8 +208,7 @@ async function syncDemo(startDate, endDate) {
       const startH = 13 + Math.floor(seeded(ds + tid) * 3); // 9-11 am Toronto time
       const st = new Date(`${ds}T${String(startH).padStart(2, "0")}:00:00Z`);
       const en = new Date(st.getTime() + hours * 3600000);
-      await upsertLog(e.employee_id, `demo-${tid}-${ds}`, ds, st.toISOString(), en.toISOString(), hours,
-        DEMO_PROJECTS[Math.floor(seeded(tid) * DEMO_PROJECTS.length)], "demo");
+      await upsertLog(e.employee_id, `demo-${tid}-${ds}`, ds, st.toISOString(), en.toISOString(), hours);
       synced++;
     }
   }
@@ -237,10 +219,10 @@ async function syncTimeLogs(startDate, endDate) {
   const key = await getApiKey();
   if (key) return syncClockify(key, startDate, endDate);
   if (await demoModeOn()) return syncDemo(startDate, endDate);
-  throw new ClockifyError("Clockify is not connected. The Business Owner can add the API key in Settings.");
+  throw new ClockifyError("Clockify is not connected. Set CLOCKIFY_API_KEY in the server's environment variables (Render → Environment).");
 }
 
 module.exports = {
   syncTimeLogs, syncDemo, testConnection, durationHours, entryHours, localDate, getApiKey, getTimezone,
-  isValidTimezone, demoModeOn, ClockifyError, DEFAULT_TZ,
+  isValidTimezone, demoModeOn, ClockifyError, DEFAULT_TZ, SOURCE_SQL,
 };

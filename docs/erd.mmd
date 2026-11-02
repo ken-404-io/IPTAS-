@@ -1,11 +1,11 @@
 erDiagram
-  USERS |o--o{ PAYROLL : "computes (computed_by)"
+  USERS ||--o{ PAYROLL : "computes (computed_by)"
   USERS |o--o{ PAYROLL : "approves (approved_by)"
-  USERS |o--o{ PAYROLL_REPORTS : generates
-  USERS |o--o{ AUDIT_LOG : performs
+  USERS ||--o{ PAYROLL_REPORTS : generates
+  USERS ||--o{ AUDIT_LOG : performs
   EMPLOYEES ||--o{ TIME_LOGS : records
   EMPLOYEES ||--o{ PAYROLL : receives
-  PAY_PERIODS ||--o{ PAYROLL : contains
+  PAY_PERIODS ||--o{ PAYROLL : covers
   PAY_PERIODS ||--o{ PAYROLL_REPORTS : "summarized in"
   PAY_RULES ||--o{ PAYROLL : "applied to"
 
@@ -16,8 +16,6 @@ erDiagram
     varchar password_hash
     varchar role "owner | admin"
     varchar status "active | inactive"
-    int failed_attempts
-    timestamptz locked_until
     timestamptz created_at
   }
   EMPLOYEES {
@@ -29,7 +27,6 @@ erDiagram
     numeric pay_rate
     varchar currency "CAD | USD"
     boolean overtime_eligible
-    boolean apply_deductions
     varchar status "active | inactive"
     date date_hired
   }
@@ -41,8 +38,6 @@ erDiagram
     timestamptz start_time
     timestamptz end_time
     numeric hours_worked
-    varchar project
-    varchar source
     timestamptz synced_at
   }
   PAY_PERIODS {
@@ -59,9 +54,7 @@ erDiagram
     numeric overtime_multiplier
     numeric cpp_rate
     numeric ei_rate
-    numeric fx_usd_to_cad
     date effective_date
-    timestamptz created_at
   }
   PAYROLL {
     int payroll_id PK
@@ -76,12 +69,9 @@ erDiagram
     numeric cpp_deduction
     numeric ei_deduction
     numeric net_pay
-    varchar currency
+    varchar currency "CAD | USD"
     numeric fx_rate
-    numeric net_pay_cad
     varchar status "computed | approved"
-    timestamptz computed_at
-    timestamptz approved_at
   }
   PAYROLL_REPORTS {
     int report_id PK
@@ -89,7 +79,7 @@ erDiagram
     int generated_by FK
     varchar report_type
     varchar file_format "PDF | Excel"
-    varchar file_name
+    varchar file_path
     timestamptz generated_at
   }
   AUDIT_LOG {
@@ -101,8 +91,4 @@ erDiagram
     text old_value
     text new_value
     timestamptz logged_at
-  }
-  SETTINGS {
-    varchar key PK
-    text value
   }

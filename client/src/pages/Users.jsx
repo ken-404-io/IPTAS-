@@ -63,6 +63,8 @@ export default function Users({ user }) {
               <label>Temporary password<input type="text" minLength={8} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required /></label>
               <label>Role<select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="admin">Administrator</option><option value="owner">Business Owner</option></select></label>
             </div>
+            <p className="tiny muted">Share the temporary password with the person. They can also use “Sign in with Google” if this email is their Google account.</p>
+            <Alert>{err}</Alert>
             <div className="form-actions"><button type="button" className="btn ghost" onClick={() => setAdd(false)}>Cancel</button><button className="btn primary">Create account</button></div>
           </form>
         </Modal>

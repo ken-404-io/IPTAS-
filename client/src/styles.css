@@ -195,3 +195,14 @@ table.perm td:not(:first-child), table.perm th:not(:first-child) { text-align: c
 .match-list li { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid #EEE; }
 .match-list li:last-child { border-bottom: none; }
 .match-list .ok { color: var(--green); font-weight: 600; } .match-list .no { color: var(--amber); font-weight: 600; }
+.logo { display: block; flex: none; }
+.login-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; letter-spacing: .5px; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: #E2E2E2; }
+.google-btn { display: flex; justify-content: center; min-height: 44px; }
+.fx-input { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.fx-input input { width: 92px; padding: 9px 10px; }
+.config-list { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
+.config-list li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #EEE; }
+.config-list li:last-child { border-bottom: none; }
+.config-list code { font-size: 12px; background: #F3F3F3; padding: 1px 6px; border-radius: 6px; }

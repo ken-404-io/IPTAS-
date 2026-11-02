@@ -9,13 +9,13 @@ Source: [`erd.mmd`](erd.mmd); the tables are defined in [`server/schema.sql`](..
 
 ```mermaid
 erDiagram
-  USERS |o--o{ PAYROLL : "computes (computed_by)"
+  USERS ||--o{ PAYROLL : "computes (computed_by)"
   USERS |o--o{ PAYROLL : "approves (approved_by)"
-  USERS |o--o{ PAYROLL_REPORTS : generates
-  USERS |o--o{ AUDIT_LOG : performs
+  USERS ||--o{ PAYROLL_REPORTS : generates
+  USERS ||--o{ AUDIT_LOG : performs
   EMPLOYEES ||--o{ TIME_LOGS : records
   EMPLOYEES ||--o{ PAYROLL : receives
-  PAY_PERIODS ||--o{ PAYROLL : contains
+  PAY_PERIODS ||--o{ PAYROLL : covers
   PAY_PERIODS ||--o{ PAYROLL_REPORTS : "summarized in"
   PAY_RULES ||--o{ PAYROLL : "applied to"
 
@@ -26,8 +26,6 @@ erDiagram
     varchar password_hash
     varchar role "owner | admin"
     varchar status "active | inactive"
-    int failed_attempts
-    timestamptz locked_until
     timestamptz created_at
   }
   EMPLOYEES {
@@ -39,7 +37,6 @@ erDiagram
     numeric pay_rate
     varchar currency "CAD | USD"
     boolean overtime_eligible
-    boolean apply_deductions
     varchar status "active | inactive"
     date date_hired
   }
@@ -51,8 +48,6 @@ erDiagram
     timestamptz start_time
     timestamptz end_time
     numeric hours_worked
-    varchar project
-    varchar source
     timestamptz synced_at
   }
   PAY_PERIODS {
@@ -69,9 +64,7 @@ erDiagram
     numeric overtime_multiplier
     numeric cpp_rate
     numeric ei_rate
-    numeric fx_usd_to_cad
     date effective_date
-    timestamptz created_at
   }
   PAYROLL {
     int payroll_id PK
@@ -86,12 +79,9 @@ erDiagram
     numeric cpp_deduction
     numeric ei_deduction
     numeric net_pay
-    varchar currency
+    varchar currency "CAD | USD"
     numeric fx_rate
-    numeric net_pay_cad
     varchar status "computed | approved"
-    timestamptz computed_at
-    timestamptz approved_at
   }
   PAYROLL_REPORTS {
     int report_id PK
@@ -99,7 +89,7 @@ erDiagram
     int generated_by FK
     varchar report_type
     varchar file_format "PDF | Excel"
-    varchar file_name
+    varchar file_path
     timestamptz generated_at
   }
   AUDIT_LOG {
@@ -112,39 +102,44 @@ erDiagram
     text new_value
     timestamptz logged_at
   }
-  SETTINGS {
-    varchar key PK
-    text value
-  }
 ```
 
 ## Tables
+The database matches the ERD in Laboratory Exercise 005 exactly: 8 entities, 67 attributes, nothing added or left out.
+Table names are plural (`users`) for the singular entities (USER). The tables map to the DFD data stores:
+D1 = users, D2 = employees, D3 = time_logs, D4 = pay_rules, D5 = payroll, D6 = audit_log.
 
 | Table | Purpose |
 |---|---|
-| `users` | System accounts that log in (Owner, Payroll Admin) |
-| `employees` | Staff who get paid (hourly or fixed, CAD or USD) |
-| `time_logs` | Hours worked. `source` is `clockify` (synced from the API), `manual` (added by a user) or `demo` (sample data) |
+| `users` | System accounts that log in (Business Owner, Administrator) |
+| `employees` | Remote workers being paid (hourly or fixed, CAD or USD) |
+| `time_logs` | One time entry synced from Clockify. `tracker_entry_id` starts with `clockify-` (or `demo-` for sample data) |
 | `pay_periods` | Two-week pay periods (open, then computed, then approved) |
-| `pay_rules` | Overtime, CPP/EI deduction rates and USD-to-CAD rate |
-| `payroll` | One computed pay record per employee per pay period |
-| `payroll_reports` | Log of PDF/Excel reports generated |
-| `audit_log` | Who did what, and when |
-| `settings` | App settings: company name, storefront URL, business time zone, Clockify key and workspace, demo mode, last sync |
+| `pay_rules` | Versions of the overtime threshold and multiplier and the CPP/EI rates, by effective date |
+| `payroll` | Computed pay of one employee for one pay period, with the currency and USD→CAD `fx_rate` used |
+| `payroll_reports` | Log of PDF/Excel reports generated (`file_path` = the exported file) |
+| `audit_log` | Who did what, and when (also holds the last time-log sync) |
+
+How values not stored as columns are handled:
+- **Net pay in CAD** = `net_pay × fx_rate`, calculated when shown.
+- **CPP and EI** are deducted for employees paid in CAD (Canadian payroll); employees paid in USD have none.
+- **USD→CAD rate** is entered when computing payroll and saved in `payroll.fx_rate`.
+- **Company name, storefront URL, time zone and Clockify key** are server environment variables, not a table.
+- **Account lockout** (5 wrong passwords → 15 minutes) is kept in server memory.
 
 ## Relationships
 
 | From | To | Type | Foreign key |
 |---|---|---|---|
-| employees | time_logs | 1 to many | `time_logs.employee_id` |
-| employees | payroll | 1 to many | `payroll.employee_id` |
-| pay_periods | payroll | 1 to many | `payroll.period_id` |
-| pay_rules | payroll | 1 to many | `payroll.rule_id` |
-| users | payroll (computes) | 0..1 to many | `payroll.computed_by` |
-| users | payroll (approves) | 0..1 to many | `payroll.approved_by` |
-| pay_periods | payroll_reports | 1 to many | `payroll_reports.period_id` |
-| users | payroll_reports | 0..1 to many | `payroll_reports.generated_by` |
-| users | audit_log | 0..1 to many | `audit_log.user_id` |
+| employees | time_logs | 1 to 0..many | `time_logs.employee_id` |
+| employees | payroll | 1 to 0..many | `payroll.employee_id` |
+| pay_periods | payroll | 1 to 0..many | `payroll.period_id` |
+| pay_rules | payroll | 1 to 0..many | `payroll.rule_id` |
+| users | payroll (computes) | 1 to 0..many | `payroll.computed_by` |
+| users | payroll (approves) | 0..1 to 0..many | `payroll.approved_by` |
+| pay_periods | payroll_reports | 1 to 0..many | `payroll_reports.period_id` |
+| users | payroll_reports | 1 to 0..many | `payroll_reports.generated_by` |
+| users | audit_log | 1 to 0..many | `audit_log.user_id` |
 
 `payroll` has a unique rule on (`employee_id`, `period_id`), so an employee is paid once per period.
 

@@ -6,6 +6,7 @@ const bcrypt = require("bcryptjs");
 const db = require("./db");
 const { syncDemo } = require("./timetracker");
 const { computePay } = require("./payroll");
+const { config } = require("./config");
 
 const ANCHOR = "2026-09-26"; // go-live date (first pay period start)
 
@@ -44,28 +45,24 @@ async function seedIfEmpty() {
   const ownerId = owner.rows[0].user_id, adminId = admin.rows[0].user_id;
 
   await db.query(
-    `INSERT INTO pay_rules (rule_name, overtime_threshold, overtime_multiplier, cpp_rate, ei_rate, fx_usd_to_cad, effective_date)
-     VALUES ('Standard 2026', 40, 1.5, 0.0595, 0.0164, 1.3700, '2026-01-01')`);
+    `INSERT INTO pay_rules (rule_name, overtime_threshold, overtime_multiplier, cpp_rate, ei_rate, effective_date)
+     VALUES ('Standard 2026', 40, 1.5, 0.0595, 0.0164, '2026-01-01')`);
 
   const emps = [
-    ["demo-u01", "Liam Tremblay", "liam.tremblay@example.com", "hourly", 22.5, "CAD", true, true, "2026-03-02"],
-    ["demo-u02", "Olivia Martin", "olivia.martin@example.com", "hourly", 24.0, "CAD", true, true, "2026-01-12"],
-    ["demo-u03", "Noah Roy", "noah.roy@example.com", "fixed", 1850, "CAD", false, true, "2025-11-03"],
-    ["demo-u04", "Emma Gagnon", "emma.gagnon@example.com", "hourly", 19.75, "CAD", true, true, "2026-05-18"],
-    ["demo-u05", "Maria Santos", "maria.santos@example.com", "hourly", 9.5, "USD", true, false, "2026-02-09"],
-    ["demo-u06", "John Reyes", "john.reyes@example.com", "hourly", 8.75, "USD", true, false, "2026-04-06"],
-    ["demo-u07", "Ana Cruz", "ana.cruz@example.com", "fixed", 900, "USD", false, false, "2025-12-01"],
-    ["demo-u08", "William Bouchard", "william.bouchard@example.com", "hourly", 21.0, "CAD", true, true, "2026-06-22"],
+    ["demo-u01", "Liam Tremblay", "liam.tremblay@example.com", "hourly", 22.5, "CAD", true, "2026-03-02"],
+    ["demo-u02", "Olivia Martin", "olivia.martin@example.com", "hourly", 24.0, "CAD", true, "2026-01-12"],
+    ["demo-u03", "Noah Roy", "noah.roy@example.com", "fixed", 1850, "CAD", false, "2025-11-03"],
+    ["demo-u04", "Emma Gagnon", "emma.gagnon@example.com", "hourly", 19.75, "CAD", true, "2026-05-18"],
+    ["demo-u05", "Maria Santos", "maria.santos@example.com", "hourly", 9.5, "USD", true, "2026-02-09"],
+    ["demo-u06", "John Reyes", "john.reyes@example.com", "hourly", 8.75, "USD", true, "2026-04-06"],
+    ["demo-u07", "Ana Cruz", "ana.cruz@example.com", "fixed", 900, "USD", false, "2025-12-01"],
+    ["demo-u08", "William Bouchard", "william.bouchard@example.com", "hourly", 21.0, "CAD", true, "2026-06-22"],
   ];
   for (const e of emps) {
     await db.query(
-      `INSERT INTO employees (tracker_user_id, full_name, email, employment_type, pay_rate, currency, overtime_eligible, apply_deductions, date_hired)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, e);
+      `INSERT INTO employees (tracker_user_id, full_name, email, employment_type, pay_rate, currency, overtime_eligible, date_hired)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, e);
   }
-  await db.query(`INSERT INTO settings (key,value) VALUES
-    ('company_name','Northern Goods Co.'), ('storefront_url','https://www.shopify.com'),
-    ('timezone','America/Toronto'), ('demo_mode','on')
-    ON CONFLICT (key) DO NOTHING`);
 
   await ensurePayPeriods();
 
@@ -85,18 +82,19 @@ async function seedIfEmpty() {
         "SELECT to_char(work_date,'YYYY-MM-DD') AS work_date, hours_worked FROM time_logs WHERE employee_id=$1 AND work_date BETWEEN $2 AND $3",
         [emp.employee_id, p.start_date, p.end_date])).rows;
       if (!logs.length && emp.employment_type === "hourly") continue;
-      const r = computePay(emp, logs, rule);
+      const r = computePay(emp, logs, rule, config.defaultFx());
       await db.query(
         `INSERT INTO payroll (employee_id, period_id, rule_id, computed_by, approved_by, regular_hours, overtime_hours, gross_pay,
-          cpp_deduction, ei_deduction, net_pay, currency, fx_rate, net_pay_cad, status, approved_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'approved',NOW())`,
+          cpp_deduction, ei_deduction, net_pay, currency, fx_rate, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'approved')`,
         [emp.employee_id, p.period_id, rule.rule_id, adminId, ownerId, r.regular_hours, r.overtime_hours, r.gross_pay,
-          r.cpp_deduction, r.ei_deduction, r.net_pay, r.currency, r.fx_rate, r.net_pay_cad]);
+          r.cpp_deduction, r.ei_deduction, r.net_pay, r.currency, r.fx_rate]);
     }
     await db.query("UPDATE pay_periods SET status='approved' WHERE period_id=$1", [p.period_id]);
   }
-  await db.query(`INSERT INTO settings (key,value) VALUES ('last_sync',$1) ON CONFLICT (key) DO UPDATE SET value=$1`,
-    [JSON.stringify({ mode: "demo", synced: (await db.query("SELECT COUNT(*)::int AS n FROM time_logs")).rows[0].n, linked: 0, unmatched: [], at: new Date().toISOString(), period: "initial load" })]);
+  // The last sync is read from the audit trail
+  await db.query(`INSERT INTO audit_log (user_id, action, table_name, new_value) VALUES ($1,'SYNC_TIME_LOGS','time_logs',$2)`,
+    [adminId, JSON.stringify({ mode: "demo", synced: (await db.query("SELECT COUNT(*)::int AS n FROM time_logs")).rows[0].n, linked: 0, unmatched: [], at: new Date().toISOString(), period: "initial load" })]);
   await db.query(`INSERT INTO audit_log (user_id, action, table_name, new_value) VALUES ($1,'SYSTEM_SETUP','users','Starter data loaded')`, [ownerId]);
   console.log("Starter data loaded. Owner: owner@iptas.app / Owner@2026  Admin: admin@iptas.app / Admin@2026");
   return true;

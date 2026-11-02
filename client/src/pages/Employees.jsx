@@ -3,7 +3,7 @@ import { api, money, fmtDate } from "../api.js";
 import { PageHeader, Modal, Alert, Status, Empty } from "../components/ui.jsx";
 import Icon from "../components/Icon.jsx";
 
-const BLANK = { full_name: "", email: "", tracker_user_id: "", employment_type: "hourly", pay_rate: "", currency: "CAD", overtime_eligible: true, apply_deductions: true, status: "active", date_hired: new Date().toISOString().slice(0, 10) };
+const BLANK = { full_name: "", email: "", tracker_user_id: "", employment_type: "hourly", pay_rate: "", currency: "CAD", overtime_eligible: true, status: "active", date_hired: new Date().toISOString().slice(0, 10) };
 
 function EmployeeForm({ initial, onSaved, onClose }) {
   const [f, setF] = useState({ ...BLANK, ...initial, tracker_user_id: initial?.tracker_user_id || "" });
@@ -36,7 +36,7 @@ function EmployeeForm({ initial, onSaved, onClose }) {
         <label>Status<select value={f.status} onChange={set("status")}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
       </div>
       <label className="check"><input type="checkbox" checked={f.overtime_eligible} onChange={set("overtime_eligible")} /> Eligible for overtime pay</label>
-      <label className="check"><input type="checkbox" checked={f.apply_deductions} onChange={set("apply_deductions")} /> Apply CPP and EI deductions (Canadian payroll)</label>
+      <p className="tiny muted">CPP and EI are deducted for employees paid in CAD (Canadian payroll). Employees paid in USD have no deductions.</p>
       <div className="form-actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>{busy ? "Saving…" : "Save employee"}</button></div>
     </form>
   );
@@ -67,7 +67,7 @@ export default function Employees() {
                 <td>{r.employment_type === "hourly" ? "Hourly" : "Fixed"}</td>
                 <td className="num">{money(r.pay_rate, r.currency)}{r.employment_type === "hourly" ? "/h" : "/period"}</td>
                 <td>{r.overtime_eligible ? "Yes" : "No"}</td>
-                <td>{r.apply_deductions ? "Yes" : "No"}</td>
+                <td>{r.currency === "CAD" ? "Yes" : "No"}</td>
                 <td className="tiny">{r.tracker_user_id || <span className="muted">not linked</span>}</td>
                 <td>{fmtDate(r.date_hired)}</td>
                 <td><Status value={r.status} /></td>

@@ -12,6 +12,7 @@ import Users from "./pages/Users.jsx";
 import Audit from "./pages/Audit.jsx";
 import Settings from "./pages/Settings.jsx";
 import Icon from "./components/Icon.jsx";
+import Logo from "./components/Logo.jsx";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: "dashboard", end: true },
@@ -31,7 +32,7 @@ function Shell({ user, onLogout, children }) {
     <div className="shell">
       <aside className={"sidebar" + (open ? " open" : "")}>
         <div className="brand">
-          <div className="brand-mark">IP</div>
+          <Logo size={40} />
           <div><div className="brand-name">IPTAS</div><div className="brand-sub">Payroll & Time Tracking</div></div>
         </div>
         <nav>

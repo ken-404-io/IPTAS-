@@ -1,4 +1,6 @@
 -- IPTAS database schema (matches the ERD in Laboratory Exercise 005)
+-- USER = users, EMPLOYEE = employees, TIME_LOG = time_logs, PAY_PERIOD = pay_periods,
+-- PAY_RULE = pay_rules, PAYROLL = payroll, PAYROLL_REPORT = payroll_reports, AUDIT_LOG = audit_log
 
 CREATE TABLE IF NOT EXISTS users (
   user_id        SERIAL PRIMARY KEY,
@@ -7,8 +9,6 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash  VARCHAR(255) NOT NULL,
   role           VARCHAR(10)  NOT NULL CHECK (role IN ('owner','admin')),
   status         VARCHAR(10)  NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
-  failed_attempts INT NOT NULL DEFAULT 0,
-  locked_until   TIMESTAMPTZ,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -21,21 +21,19 @@ CREATE TABLE IF NOT EXISTS employees (
   pay_rate          NUMERIC(10,2) NOT NULL CHECK (pay_rate >= 0),
   currency          VARCHAR(3)   NOT NULL CHECK (currency IN ('CAD','USD')),
   overtime_eligible BOOLEAN NOT NULL DEFAULT TRUE,
-  apply_deductions  BOOLEAN NOT NULL DEFAULT TRUE,
   status            VARCHAR(10)  NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
   date_hired        DATE NOT NULL DEFAULT CURRENT_DATE
 );
 
+-- tracker_entry_id starts with "clockify-", "manual-" or "demo-", which shows where the entry came from
 CREATE TABLE IF NOT EXISTS time_logs (
   log_id            SERIAL PRIMARY KEY,
   employee_id       INT NOT NULL REFERENCES employees(employee_id) ON DELETE CASCADE,
-  tracker_entry_id  VARCHAR(80) NOT NULL UNIQUE,
+  tracker_entry_id  VARCHAR(50) NOT NULL UNIQUE,
   work_date         DATE NOT NULL,
   start_time        TIMESTAMPTZ,
   end_time          TIMESTAMPTZ,
   hours_worked      NUMERIC(5,2) NOT NULL CHECK (hours_worked >= 0),
-  project           VARCHAR(100),
-  source            VARCHAR(10) NOT NULL DEFAULT 'demo',
   synced_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_time_logs_emp_date ON time_logs(employee_id, work_date);
@@ -53,13 +51,12 @@ CREATE TABLE IF NOT EXISTS pay_rules (
   rule_name           VARCHAR(50) NOT NULL,
   overtime_threshold  NUMERIC(5,2) NOT NULL,   -- hours per week before overtime
   overtime_multiplier NUMERIC(3,2) NOT NULL,
-  cpp_rate            NUMERIC(6,4) NOT NULL,
-  ei_rate             NUMERIC(6,4) NOT NULL,
-  fx_usd_to_cad       NUMERIC(8,4) NOT NULL,
-  effective_date      DATE NOT NULL,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  cpp_rate            NUMERIC(5,4) NOT NULL,
+  ei_rate             NUMERIC(5,4) NOT NULL,
+  effective_date      DATE NOT NULL
 );
 
+-- fx_rate is the USD to CAD rate used for this payroll (1 for CAD)
 CREATE TABLE IF NOT EXISTS payroll (
   payroll_id     SERIAL PRIMARY KEY,
   employee_id    INT NOT NULL REFERENCES employees(employee_id),
@@ -73,12 +70,9 @@ CREATE TABLE IF NOT EXISTS payroll (
   cpp_deduction  NUMERIC(10,2) NOT NULL,
   ei_deduction   NUMERIC(10,2) NOT NULL,
   net_pay        NUMERIC(10,2) NOT NULL,
-  currency       VARCHAR(3) NOT NULL,
+  currency       VARCHAR(3) NOT NULL CHECK (currency IN ('CAD','USD')),
   fx_rate        NUMERIC(8,4) NOT NULL,
-  net_pay_cad    NUMERIC(10,2) NOT NULL,
   status         VARCHAR(10) NOT NULL DEFAULT 'computed' CHECK (status IN ('computed','approved')),
-  computed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  approved_at    TIMESTAMPTZ,
   UNIQUE (employee_id, period_id)
 );
 
@@ -88,7 +82,7 @@ CREATE TABLE IF NOT EXISTS payroll_reports (
   generated_by INT REFERENCES users(user_id),
   report_type  VARCHAR(50) NOT NULL,
   file_format  VARCHAR(10) NOT NULL CHECK (file_format IN ('PDF','Excel')),
-  file_name    VARCHAR(255) NOT NULL,
+  file_path    VARCHAR(255) NOT NULL,
   generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -103,7 +97,27 @@ CREATE TABLE IF NOT EXISTS audit_log (
   logged_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS settings (
-  key   VARCHAR(50) PRIMARY KEY,
-  value TEXT
-);
+-- Upgrade a database created by an earlier version of IPTAS to the Lab Exercise 005 ERD (safe to run on every start)
+ALTER TABLE users DROP COLUMN IF EXISTS failed_attempts;
+ALTER TABLE users DROP COLUMN IF EXISTS locked_until;
+ALTER TABLE users DROP COLUMN IF EXISTS google_sub;
+ALTER TABLE employees DROP COLUMN IF EXISTS apply_deductions;
+ALTER TABLE time_logs DROP COLUMN IF EXISTS project;
+ALTER TABLE time_logs DROP COLUMN IF EXISTS source;
+ALTER TABLE time_logs ALTER COLUMN tracker_entry_id TYPE VARCHAR(50);
+ALTER TABLE pay_rules DROP COLUMN IF EXISTS fx_usd_to_cad;
+ALTER TABLE pay_rules DROP COLUMN IF EXISTS created_at;
+ALTER TABLE pay_rules ALTER COLUMN cpp_rate TYPE NUMERIC(5,4);
+ALTER TABLE pay_rules ALTER COLUMN ei_rate TYPE NUMERIC(5,4);
+ALTER TABLE payroll DROP COLUMN IF EXISTS net_pay_cad;
+ALTER TABLE payroll DROP COLUMN IF EXISTS computed_at;
+ALTER TABLE payroll DROP COLUMN IF EXISTS approved_at;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payroll_reports' AND column_name='file_name') THEN
+    ALTER TABLE payroll_reports RENAME COLUMN file_name TO file_path;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='payroll_currency_check') THEN
+    ALTER TABLE payroll ADD CONSTRAINT payroll_currency_check CHECK (currency IN ('CAD','USD'));
+  END IF;
+END $$;
+DROP TABLE IF EXISTS settings;
