@@ -259,6 +259,23 @@ async function syncPeriod(userId, p) {
   return info;
 }
 
+// Scheduled sync (DFD 3.0 "runs on a schedule or on demand"): every 30 minutes, open pay periods that are
+// current or ended in the last 14 days get their latest Clockify hours. Not written to the audit trail.
+const SYNC_EVERY_MS = 30 * 60 * 1000;
+async function scheduledSync() {
+  try {
+    if (!(await getApiKey())) return;
+    await ensurePayPeriods();
+    const today = new Date().toISOString().slice(0, 10);
+    const ps = (await db.query(
+      "SELECT * FROM pay_periods WHERE status='open' AND start_date <= $1 AND end_date >= ($1::date - 14) ORDER BY start_date", [today])).rows;
+    for (const p of ps) {
+      const r = await syncTimeLogs(p.start_date, p.end_date);
+      console.log(`Scheduled sync ${p.start_date} to ${p.end_date}: ${r.synced} entries`);
+    }
+  } catch (e) { console.error("Scheduled sync failed:", e.message); }
+}
+
 app.post("/api/timelogs/sync", auth, wrap(async (req, res) => {
   const p = (await db.query("SELECT * FROM pay_periods WHERE period_id=$1", [req.body?.period_id])).rows[0];
   if (!p) return bad(res, "Select a pay period.");
@@ -505,5 +522,9 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 migrate()
   .then(seedIfEmpty)
-  .then(() => app.listen(PORT, () => console.log(`IPTAS running on port ${PORT}`)))
+  .then(() => app.listen(PORT, () => {
+    console.log(`IPTAS running on port ${PORT}`);
+    setTimeout(scheduledSync, 10 * 1000); // also right after the server wakes up
+    setInterval(scheduledSync, SYNC_EVERY_MS);
+  }))
   .catch((e) => { console.error("Startup failed:", e); process.exit(1); });

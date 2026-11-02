@@ -121,3 +121,5 @@ DO $$ BEGIN
   END IF;
 END $$;
 DROP TABLE IF EXISTS settings;
+-- Hours come only from the time-tracker (DFD: D3 is written by 3.0 Retrieve & Sync), so old manual entries are removed
+DELETE FROM time_logs WHERE tracker_entry_id LIKE 'manual-%';
