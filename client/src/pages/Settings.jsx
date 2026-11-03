@@ -61,6 +61,7 @@ export default function Settings() {
     ["Time zone", s.timezone, "TIMEZONE"],
     ["USD → CAD", s.fx_rate, "FX_USD_TO_CAD"],
     ["Google sign-in", s.google_sign_in ? "On" : "Off", "GOOGLE_CLIENT_ID"],
+    ["PayPal payouts", s.paypal ? (s.paypal === "sandbox" ? "Connected · sandbox" : "Connected · live") : "Off", "PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_ENV"],
   ];
   return (
     <>

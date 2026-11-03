@@ -10,6 +10,7 @@ const { migrate, seedIfEmpty, ensurePayPeriods } = require("./seed");
 const { computePay, dailyTotals } = require("./payroll");
 const { verifyGoogleToken, GoogleAuthError } = require("./google");
 const { config } = require("./config");
+const paypal = require("./paypal");
 const { syncTimeLogs, testConnection, getApiKey, getTimezone, demoModeOn, ClockifyError, SOURCE_SQL } = require("./timetracker");
 
 const app = express();
@@ -387,7 +388,8 @@ app.get("/api/payroll/:periodId", auth, wrap(async (req, res) => {
       WHERE pr.period_id=$1 ORDER BY e.full_name`, [p.period_id]);
   const rule = rows[0] ? (await db.query("SELECT * FROM pay_rules WHERE rule_id=$1", [rows[0].rule_id])).rows[0] : await ruleFor(p.end_date);
   const usd = (await db.query("SELECT 1 FROM employees WHERE status='active' AND currency='USD' LIMIT 1")).rowCount > 0;
-  res.json({ period: p, rule, items: rows, company: config.companyName(), fx_rate: await currentFx(), has_usd: usd });
+  res.json({ period: p, rule, items: rows, company: config.companyName(), fx_rate: await currentFx(), has_usd: usd,
+    paypal: { configured: paypal.configured(), env: config.paypalEnv() } });
 }));
 
 app.post("/api/payroll/:periodId/compute", auth, wrap(async (req, res) => {
@@ -455,6 +457,65 @@ app.post("/api/payroll/:periodId/approve", auth, ownerOnly, wrap(async (req, res
   const tot = (await db.query("SELECT COALESCE(SUM(ROUND(net_pay*fx_rate,2)),0) AS t FROM payroll WHERE period_id=$1", [p.period_id])).rows[0].t;
   await audit(req.user.user_id, "APPROVE_PAYROLL", "payroll", p.period_id, "computed", { status: "approved", total_net_cad: tot });
   res.json({ ok: true });
+}));
+
+// ---------- PayPal payouts ----------
+// Updates the payout status of every unfinished PayPal item in a pay period
+async function refreshPayouts(periodId) {
+  const batches = (await db.query(
+    `SELECT DISTINCT paypal_batch_id FROM payroll WHERE period_id=$1 AND paypal_batch_id IS NOT NULL
+        AND (payout_status IS NULL OR NOT (payout_status = ANY($2)))`, [periodId, paypal.FINAL])).rows.map((r) => r.paypal_batch_id);
+  let updated = 0;
+  for (const b of batches) {
+    const items = await paypal.payoutItems(b);
+    for (const [payrollId, it] of Object.entries(items)) {
+      const r = await db.query(
+        `UPDATE payroll SET paypal_item_id=$1, payout_status=$2, payout_error=$3 WHERE payroll_id=$4 AND period_id=$5 AND paypal_batch_id=$6
+           AND (payout_status IS DISTINCT FROM $2 OR paypal_item_id IS DISTINCT FROM $1)`,
+        [it.item_id, it.status, it.error, payrollId, periodId, b]);
+      updated += r.rowCount;
+    }
+  }
+  return updated;
+}
+
+// Sends the approved net pay of everyone not paid yet (or whose last payout failed) to their email through PayPal
+app.post("/api/payroll/:periodId/paypal", auth, ownerOnly, wrap(async (req, res) => {
+  const p = (await db.query("SELECT * FROM pay_periods WHERE period_id=$1", [req.params.periodId])).rows[0];
+  if (!p) return res.status(404).json({ error: "Pay period not found." });
+  if (p.status !== "approved") return bad(res, "Approve the payroll before paying it.");
+  if (!paypal.configured()) return bad(res, "PayPal is not connected. Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET on the server.");
+  // Claim the rows first, so a double click cannot pay anyone twice
+  const rows = (await db.query(
+    `UPDATE payroll pr SET payout_status='SENDING', payout_error=NULL, paypal_batch_id=NULL, paypal_item_id=NULL
+       FROM employees e
+      WHERE e.employee_id=pr.employee_id AND pr.period_id=$1 AND pr.net_pay > 0
+        AND (pr.payout_status IS NULL OR pr.payout_status = ANY($2))
+      RETURNING pr.payroll_id, pr.net_pay, pr.currency, e.full_name, e.email`, [p.period_id, paypal.RETRYABLE])).rows;
+  if (!rows.length) return bad(res, "Everyone in this payroll has already been sent their pay.");
+  const ids = rows.map((r) => r.payroll_id);
+  let batchId;
+  try { batchId = await paypal.createPayout(p, rows, config.companyName()); }
+  catch (e) {
+    await db.query("UPDATE payroll SET payout_status=NULL, payout_error=$1 WHERE payroll_id = ANY($2)", [e.message, ids]);
+    if (e instanceof paypal.PayPalError) return res.status(502).json({ error: "Payment not sent: " + e.message });
+    throw e;
+  }
+  await db.query("UPDATE payroll SET paypal_batch_id=$1, payout_status='PENDING', paid_at=NOW() WHERE payroll_id = ANY($2)", [batchId, ids]);
+  try { await refreshPayouts(p.period_id); } catch { /* the status can be refreshed later */ }
+  const totals = {};
+  for (const r of rows) totals[r.currency] = Math.round(((totals[r.currency] || 0) + Number(r.net_pay)) * 100) / 100;
+  await audit(req.user.user_id, "PAYPAL_PAYOUT", "payroll", p.period_id, null,
+    { period: `${p.start_date} to ${p.end_date}`, employees: rows.length, totals, batch_id: batchId, env: config.paypalEnv() });
+  res.json({ ok: true, sent: rows.length, totals, batch_id: batchId, env: config.paypalEnv() });
+}));
+
+app.post("/api/payroll/:periodId/paypal/refresh", auth, wrap(async (req, res) => {
+  if (!paypal.configured()) return bad(res, "PayPal is not connected.");
+  const id = Number(req.params.periodId);
+  if (!Number.isInteger(id)) return res.status(404).json({ error: "Pay period not found." });
+  try { res.json({ ok: true, updated: await refreshPayouts(id) }); }
+  catch (e) { if (e instanceof paypal.PayPalError) return res.status(502).json({ error: "Could not get the payout status: " + e.message }); throw e; }
 }));
 
 // ---------- dashboard ----------
@@ -527,6 +588,7 @@ app.get("/api/settings", auth, ownerOnly, wrap(async (req, res) => {
     company_name: config.companyName(), storefront_url: config.storefrontUrl(), timezone: await getTimezone(),
     fx_rate: await currentFx(), demo_mode: await demoModeOn(), sample_data: sample,
     clockify_connected: !!key, clockify_key_hint: key ? "••••" + key.slice(-4) : "", google_sign_in: !!config.googleClientId(),
+    paypal: paypal.configured() ? config.paypalEnv() : "",
   });
 }));
 

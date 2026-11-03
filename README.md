@@ -56,6 +56,20 @@ The database tables and starter data are created automatically on the first star
 4. Set `TIMEZONE` (default `America/Toronto`). Hours are put on the work date in that time zone.
 5. On **Time Logs**, pick the pay period and click **Sync time logs**.
 
+## Paying employees with PayPal (by email)
+
+After the Business Owner approves a payroll, **Pay with PayPal** on the Payroll page sends each employee's net pay
+(in their currency, CAD or USD) to their email address using PayPal Payouts. PayPal emails the employee, and the
+PayPal column shows the status: Pending → Paid, or Unclaimed (no PayPal account on that email yet; PayPal returns
+the money after 30 days if unclaimed). Failed or returned payments can be sent again; nobody is paid twice.
+
+1. At developer.paypal.com → **Apps & Credentials** (Sandbox), create an app and copy its Client ID and Secret.
+2. Set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `PAYPAL_ENV=sandbox` on the server (Render → Environment).
+3. For sandbox tests, give employees the emails of sandbox **Personal** accounts (developer dashboard → Sandbox → Accounts).
+   Sandbox emails are not delivered to real inboxes; see them under Sandbox → Notifications, or log in to
+   sandbox.paypal.com as the employee to see the money.
+4. For real money, use the Live app's credentials and `PAYPAL_ENV=live` (Payouts must be enabled on the live account).
+
 How the sync behaves:
 - Every page of results is fetched, so large teams and many short entries are all included.
 - Entries deleted or moved in Clockify are removed on the next sync; running timers are skipped until they stop.

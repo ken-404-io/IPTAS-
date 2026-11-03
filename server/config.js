@@ -15,6 +15,10 @@ const config = {
   // Default USD to CAD rate offered when computing payroll (the rate actually used is saved in payroll.fx_rate)
   defaultFx: () => Number(process.env.FX_USD_TO_CAD) > 0 ? Number(process.env.FX_USD_TO_CAD) : 1.37,
   googleClientId: () => (process.env.GOOGLE_CLIENT_ID || "").trim(),
+  // PayPal Payouts (pay employees by email). Sandbox unless PAYPAL_ENV=live.
+  paypalClientId: () => (process.env.PAYPAL_CLIENT_ID || "").trim(),
+  paypalSecret: () => (process.env.PAYPAL_CLIENT_SECRET || "").trim(),
+  paypalEnv: () => ((process.env.PAYPAL_ENV || "").trim().toLowerCase() === "live" ? "live" : "sandbox"),
 };
 
 module.exports = { config, isValidTimezone, DEFAULT_TZ };

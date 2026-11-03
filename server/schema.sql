@@ -125,3 +125,9 @@ DROP TABLE IF EXISTS settings;
 DELETE FROM time_logs WHERE tracker_entry_id LIKE 'manual-%';
 -- Overtime is daily now: a threshold above 24 hours was a weekly value from an earlier version, so it becomes 6 hours a day
 UPDATE pay_rules SET overtime_threshold = 6 WHERE overtime_threshold > 24;
+-- PayPal payout of the net pay (sent to the employee's email after the payroll is approved)
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS paypal_batch_id VARCHAR(40);
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS paypal_item_id  VARCHAR(40);
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS payout_status   VARCHAR(20);
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS payout_error    TEXT;
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS paid_at         TIMESTAMPTZ;
