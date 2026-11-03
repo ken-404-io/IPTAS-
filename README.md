@@ -61,6 +61,7 @@ How the sync behaves:
 - Entries deleted or moved in Clockify are removed on the next sync; running timers are skipped until they stop.
 - Syncing again after payroll was computed clears that (unapproved) payroll so it must be recomputed with the new hours.
 - Approved pay periods are locked and never change.
+- Pay periods are semi-monthly: the 1st–15th and the 16th–end of the month, paid 6 days after the period ends. Open periods that have no payroll yet are realigned to this calendar automatically; computed or approved periods keep their dates.
 - Clockify's own sample users (`[SAMPLE] …`, `@clockify-test.com`) are ignored.
 - Workspaces on a regional Clockify server: set `CLOCKIFY_API_URL` (e.g. `https://euc1.clockify.me/api/v1`).
 
