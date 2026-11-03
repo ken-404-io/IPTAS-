@@ -8,22 +8,47 @@ const { syncDemo } = require("./timetracker");
 const { computePay } = require("./payroll");
 const { config } = require("./config");
 
-const ANCHOR = "2026-09-26"; // go-live date (first pay period start)
+const ANCHOR = "2026-09-26"; // go-live date (first day of the first pay period)
+const PAY_DELAY_DAYS = 6;    // pay date = this many days after the period ends
 
 function addDays(dateStr, n) {
   const d = new Date(dateStr + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
 
-// Make sure pay periods exist up to the period that contains today (+1 upcoming)
+// Semi-monthly pay periods: the 1st to the 15th, and the 16th to the last day of the month.
+// A period starting on any other day (the go-live date, or the switch from the old two-week periods)
+// runs to the end of its half of the month, so the next one lines up with the calendar.
+function periodEnd(start) {
+  const [y, m, d] = start.split("-").map(Number);
+  if (d <= 15) return start.slice(0, 8) + "15";
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); // day 0 of next month = last day of this month
+}
+
+// Make sure pay periods exist up to the period that contains today (+1 upcoming).
+// Periods that are computed, approved, have payroll or reports are never touched. Open, unused periods
+// after them are reshaped to the semi-monthly calendar (time logs are stored by date, so nothing is lost).
 async function ensurePayPeriods() {
   const today = new Date().toISOString().slice(0, 10);
-  let start = ANCHOR;
-  while (start <= addDays(today, 14)) {
+  const used = `p.status <> 'open' OR EXISTS (SELECT 1 FROM payroll pr WHERE pr.period_id=p.period_id)
+                OR EXISTS (SELECT 1 FROM payroll_reports r WHERE r.period_id=p.period_id)`;
+  const last = (await db.query(`SELECT to_char(MAX(p.end_date),'YYYY-MM-DD') AS d FROM pay_periods p WHERE ${used}`)).rows[0].d;
+  const from = last ? addDays(last, 1) : ANCHOR;
+  const want = [];
+  for (let start = from; start <= addDays(today, 15); start = addDays(periodEnd(start), 1)) {
+    want.push({ start, end: periodEnd(start), pay: addDays(periodEnd(start), PAY_DELAY_DAYS) });
+  }
+  const starts = want.map((w) => w.start);
+  // Remove open, unused periods that are not on the new calendar
+  await db.query(
+    `DELETE FROM pay_periods p WHERE p.start_date >= $1 AND NOT (${used}) AND NOT (to_char(p.start_date,'YYYY-MM-DD') = ANY($2::text[]))`,
+    [from, starts]);
+  for (const w of want) {
     await db.query(
-      `INSERT INTO pay_periods (start_date, end_date, pay_date) VALUES ($1,$2,$3) ON CONFLICT (start_date) DO NOTHING`,
-      [start, addDays(start, 13), addDays(start, 19)]);
-    start = addDays(start, 14);
+      `INSERT INTO pay_periods (start_date, end_date, pay_date) VALUES ($1,$2,$3)
+       ON CONFLICT (start_date) DO UPDATE SET end_date=EXCLUDED.end_date, pay_date=EXCLUDED.pay_date
+       WHERE pay_periods.status='open' AND (pay_periods.end_date, pay_periods.pay_date) IS DISTINCT FROM (EXCLUDED.end_date, EXCLUDED.pay_date)`,
+      [w.start, w.end, w.pay]);
   }
 }
 

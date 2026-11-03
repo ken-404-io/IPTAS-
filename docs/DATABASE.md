@@ -114,7 +114,7 @@ D1 = users, D2 = employees, D3 = time_logs, D4 = pay_rules, D5 = payroll, D6 = a
 | `users` | System accounts that log in (Business Owner, Administrator) |
 | `employees` | Remote workers being paid (hourly or fixed, CAD or USD) |
 | `time_logs` | One time entry synced from Clockify. `tracker_entry_id` starts with `clockify-` (or `demo-` for sample data) |
-| `pay_periods` | Two-week pay periods (open, then computed, then approved) |
+| `pay_periods` | Semi-monthly pay periods: 1st–15th and 16th–end of month, paid 6 days after the period ends (open, then computed, then approved) |
 | `pay_rules` | Versions of the overtime threshold and multiplier and the CPP/EI rates, by effective date |
 | `payroll` | Computed pay of one employee for one pay period, with the currency and USD→CAD `fx_rate` used |
 | `payroll_reports` | Log of PDF/Excel reports generated (`file_path` = the exported file) |
