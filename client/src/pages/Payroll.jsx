@@ -53,6 +53,10 @@ export default function Payroll({ user }) {
   }, [data?.period?.period_id]);
   const act = async (what) => {
     if (what === "approve" && !window.confirm("Approve and lock this payroll? It can no longer be changed after approval.")) return;
+    if (what === "pay" && !data?.paypal?.configured) {
+      setMsg(""); setErr("PayPal is not connected yet. On Render → your service → Environment, add PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (from developer.paypal.com → Apps & Credentials) and PAYPAL_ENV=sandbox, then wait for the restart and reload this page. Settings shows “PayPal payouts: Connected” when it works.");
+      return;
+    }
     if (what === "pay") {
       const list = (data?.items || []).filter(payable);
       const tot = {}; for (const i of list) tot[i.currency] = (tot[i.currency] || 0) + Number(i.net_pay);
@@ -75,7 +79,7 @@ export default function Payroll({ user }) {
   const fxError = data?.has_usd ? checkNumber(fx, { label: "USD → CAD rate", min: 0.5, max: 5, decimals: 4 }) : "";
   const sum = (k) => items.reduce((a, i) => a + Number(i[k]), 0);
   const toPay = items.filter(payable).length;
-  const canPay = p?.status === "approved" && user.role === "owner" && data?.paypal?.configured;
+  const canPay = p?.status === "approved" && user.role === "owner";
   return (
     <>
       <PageHeader title="Payroll" subtitle="Compute gets the latest hours from Clockify, applies the pay rules, then the Owner approves.">
