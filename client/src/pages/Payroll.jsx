@@ -15,10 +15,19 @@ const PAYOUT = {
 const RETRY = ["FAILED", "RETURNED", "BLOCKED", "DENIED", "REFUNDED"];
 const DONE = ["SUCCESS", ...RETRY];
 const payable = (i) => Number(i.net_pay) > 0 && (!i.payout_status || RETRY.includes(i.payout_status));
+// "Paid" only once the employee clicks "Received" in the payment email
+const received = (i) => i.received_at && !RETRY.includes(i.payout_status);
+const waiting = (i) => i.paypal_batch_id && !i.received_at && !RETRY.includes(i.payout_status);
 function Payout({ i }) {
   if (!i.payout_status) return <span className="tiny muted">{i.payout_error ? "Not sent" : "–"}</span>;
-  const [label, cls] = PAYOUT[i.payout_status] || [i.payout_status, "open"];
-  return <span className={"badge " + cls} title={i.payout_error || (i.payout_status === "UNCLAIMED" ? `Waiting for ${i.email} to claim it with a PayPal account` : undefined)}>{label}</span>;
+  if (received(i)) return <span className="badge approved" title={`${i.full_name} confirmed receiving it on ${new Date(i.received_at).toLocaleString("en-CA")}`}>Paid ✓</span>;
+  const [label, cls] = i.payout_status === "SUCCESS" ? ["In PayPal", "computed"] : PAYOUT[i.payout_status] || [i.payout_status, "open"];
+  const why = i.payout_error || (i.payout_status === "UNCLAIMED" ? `Waiting for ${i.email} to claim it with a PayPal account` : undefined);
+  return (
+    <span className="payout-cell"><span className={"badge " + cls} title={why}>{label}</span>
+      {waiting(i) && <span className={"tiny " + (i.email_error ? "red" : "muted")} title={i.email_error || undefined}>
+        {i.email_error ? "Email failed" : i.emailed_at ? "Emailed · awaiting “Received”" : "Not emailed"}</span>}
+    </span>);
 }
 
 function Payslip({ i }) {
@@ -34,6 +43,7 @@ function Payslip({ i }) {
       {i.currency === "USD" && <div className="ps-row"><span>Net pay in CAD (× {i.fx_rate})</span><strong>{money(i.net_pay_cad)}</strong></div>}
       {(i.payout_status || i.payout_error) && <div className="ps-row"><span>PayPal to {i.email}</span><strong><Payout i={i} /></strong></div>}
       {i.payout_error && <p className="tiny muted">{i.payout_error}</p>}
+      {i.email_error && <p className="tiny red">{i.email_error}</p>}
       <p className="tiny muted">Computed by {i.computed_by_name || "–"}. {i.approved_by_name ? `Approved by ${i.approved_by_name}.` : "Not yet approved."}</p>
     </div>
   );
@@ -68,9 +78,14 @@ export default function Payroll({ user }) {
       if (what === "compute") { const r = await api(`/payroll/${periodId}/compute`, { method: "POST", body: { fx_rate: data?.has_usd ? Number(fx) : undefined } }); setMsg(`${r.sync ? `Hours synced from ${r.sync.mode === "clockify" ? "Clockify" : "sample data"} (${r.sync.synced} entries). ` : ""}Payroll computed for ${r.employees} employees. ${user.role === "owner" ? "Review it, then approve." : "The Business Owner can now review and approve it."}`); }
       else if (what === "pay") {
         const r = await api(`/payroll/${periodId}/paypal`, { method: "POST" });
-        setMsg(`PayPal${r.env === "sandbox" ? " sandbox" : ""} payout sent to ${r.sent} employee${r.sent > 1 ? "s" : ""} (${Object.entries(r.totals).map(([c, v]) => money(v, c)).join(" + ")}). PayPal emails each employee; the status turns “Paid” once they receive it.`);
+        const e = r.email || {};
+        setMsg(`PayPal${r.env === "sandbox" ? " sandbox" : ""} payout sent to ${r.sent} employee${r.sent > 1 ? "s" : ""} (${Object.entries(r.totals).map(([c, v]) => money(v, c)).join(" + ")}). ` +
+          (!e.configured ? "Email is not set up, so employees were not emailed (set BREVO_API_KEY and EMAIL_FROM)."
+            : `${e.sent} payment email${e.sent === 1 ? "" : "s"} sent; each turns “Paid” when the employee clicks “Received”.`));
+        if (e.failed?.length) setErr(e.failed.join(" "));
       }
-      else if (what === "refresh") { const r = await api(`/payroll/${periodId}/paypal/refresh`, { method: "POST" }); setMsg(r.updated ? `Updated the PayPal status of ${r.updated} payment${r.updated > 1 ? "s" : ""}.` : "No change in the PayPal status."); }
+      else if (what === "email") { const r = await api(`/payroll/${periodId}/email`, { method: "POST" }); setMsg(`Payment email sent to ${r.sent} employee${r.sent === 1 ? "" : "s"}.`); if (r.failed?.length) setErr(r.failed.join(" ")); }
+            else if (what === "refresh") { const r = await api(`/payroll/${periodId}/paypal/refresh`, { method: "POST" }); setMsg(r.updated ? `Updated the PayPal status of ${r.updated} payment${r.updated > 1 ? "s" : ""}.` : "No change in the PayPal status."); }
       else { await api(`/payroll/${periodId}/approve`, { method: "POST" }); setMsg("Payroll approved and locked."); }
       await load(); await reload(true);
     } catch (e) { setErr(e.message); } finally { setBusy(""); }
@@ -92,6 +107,7 @@ export default function Payroll({ user }) {
         )}
         {p && p.status !== "approved" && <button className="btn dark" onClick={() => act("compute")} disabled={!!busy || !!fxError} title={fxError || undefined}><Icon name="calc" /> {busy === "compute" ? "Syncing & computing…" : p.status === "computed" ? "Recompute" : "Compute payroll"}</button>}
         {canPay && toPay > 0 && <button className="btn primary" onClick={() => act("pay")} disabled={!!busy}><Icon name="wallet" /> {busy === "pay" ? "Sending…" : `Pay with PayPal (${toPay})`}</button>}
+        {canPay && data?.email?.configured && items.some(waiting) && <button className="btn dark" onClick={() => act("email")} disabled={!!busy} title="Email everyone who has not clicked “Received” yet"><Icon name="sync" /> {busy === "email" ? "Emailing…" : "Email employees"}</button>}
         {p?.status === "approved" && data?.paypal?.configured && pending && <button className="btn dark" onClick={() => act("refresh")} disabled={!!busy}><Icon name="sync" /> {busy === "refresh" ? "Checking…" : "Refresh PayPal status"}</button>}
         {p && p.status === "computed" && user.role === "owner" && <button className="btn primary" onClick={() => act("approve")} disabled={!!busy}><Icon name="check" /> {busy === "approve" ? "Approving…" : "Approve payroll"}</button>}
       </PageHeader>

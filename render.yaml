@@ -23,6 +23,10 @@ services:
         sync: false
       - key: PAYPAL_ENV
         value: sandbox
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       - key: COMPANY_NAME
         value: Northern Goods Co.
       - key: STOREFRONT_URL

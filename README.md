@@ -70,6 +70,17 @@ the money after 30 days if unclaimed). Failed or returned payments can be sent a
    sandbox.paypal.com as the employee to see the money.
 4. For real money, use the Live app's credentials and `PAYPAL_ENV=live` (Payouts must be enabled on the live account).
 
+### Payment email with a "Received" button
+
+When PayPal sends the pay, IPTAS also emails each employee: amounts, an **Open PayPal** button, and a **Received**
+button. Clicking **Received** marks the payment **Paid ✓** on the Payroll page (recorded in the Audit Trail as
+PAYMENT_RECEIVED). Until then the PayPal column shows "Emailed · awaiting “Received”". **Email employees** sends
+the email again (with a new link) to everyone who has not confirmed yet.
+
+1. Create a free account at brevo.com → **Senders, Domains & Dedicated IPs → Senders** → add and verify your sender email.
+2. Brevo → **SMTP & API → API keys** → generate a key.
+3. On the server set `BREVO_API_KEY` and `EMAIL_FROM` (the verified sender). Optional: `APP_URL` (e.g. `https://iptas.onrender.com`) for the links.
+
 How the sync behaves:
 - Every page of results is fetched, so large teams and many short entries are all included.
 - Entries deleted or moved in Clockify are removed on the next sync; running timers are skipped until they stop.

@@ -131,3 +131,9 @@ ALTER TABLE payroll ADD COLUMN IF NOT EXISTS paypal_item_id  VARCHAR(40);
 ALTER TABLE payroll ADD COLUMN IF NOT EXISTS payout_status   VARCHAR(20);
 ALTER TABLE payroll ADD COLUMN IF NOT EXISTS payout_error    TEXT;
 ALTER TABLE payroll ADD COLUMN IF NOT EXISTS paid_at         TIMESTAMPTZ;
+-- Payment email to the employee: they click "Received" in it, which marks the payment as received
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS receipt_token   VARCHAR(64);
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS emailed_at      TIMESTAMPTZ;
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS email_error     TEXT;
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS received_at     TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payroll_receipt_token ON payroll(receipt_token);
