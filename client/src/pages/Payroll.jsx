@@ -6,6 +6,21 @@ import usePeriods from "../components/usePeriods.js";
 import Icon from "../components/Icon.jsx";
 import { checkNumber } from "../components/validation.jsx";
 
+// PayPal payout statuses (transaction_status of a payout item, plus SENDING while the request is in progress)
+const PAYOUT = {
+  SENDING: ["Sending…", "computed"], PENDING: ["Pending", "computed"], ONHOLD: ["On hold", "computed"],
+  UNCLAIMED: ["Unclaimed", "computed"], SUCCESS: ["Paid", "approved"],
+  FAILED: ["Failed", "failed"], RETURNED: ["Returned", "failed"], BLOCKED: ["Blocked", "failed"], DENIED: ["Denied", "failed"], REFUNDED: ["Refunded", "failed"],
+};
+const RETRY = ["FAILED", "RETURNED", "BLOCKED", "DENIED", "REFUNDED"];
+const DONE = ["SUCCESS", ...RETRY];
+const payable = (i) => Number(i.net_pay) > 0 && (!i.payout_status || RETRY.includes(i.payout_status));
+function Payout({ i }) {
+  if (!i.payout_status) return <span className="tiny muted">{i.payout_error ? "Not sent" : "–"}</span>;
+  const [label, cls] = PAYOUT[i.payout_status] || [i.payout_status, "open"];
+  return <span className={"badge " + cls} title={i.payout_error || (i.payout_status === "UNCLAIMED" ? `Waiting for ${i.email} to claim it with a PayPal account` : undefined)}>{label}</span>;
+}
+
 function Payslip({ i }) {
   return (
     <div className="payslip">
@@ -17,6 +32,8 @@ function Payslip({ i }) {
       <div className="ps-row neg"><span>EI deduction</span><strong>{Number(i.ei_deduction) ? "– " : ""}{money(i.ei_deduction, i.currency)}</strong></div>
       <div className="ps-row total"><span>Net pay</span><strong>{money(i.net_pay, i.currency)}</strong></div>
       {i.currency === "USD" && <div className="ps-row"><span>Net pay in CAD (× {i.fx_rate})</span><strong>{money(i.net_pay_cad)}</strong></div>}
+      {(i.payout_status || i.payout_error) && <div className="ps-row"><span>PayPal to {i.email}</span><strong><Payout i={i} /></strong></div>}
+      {i.payout_error && <p className="tiny muted">{i.payout_error}</p>}
       <p className="tiny muted">Computed by {i.computed_by_name || "–"}. {i.approved_by_name ? `Approved by ${i.approved_by_name}.` : "Not yet approved."}</p>
     </div>
   );
@@ -29,11 +46,27 @@ export default function Payroll({ user }) {
   const [busy, setBusy] = useState(""); const [slip, setSlip] = useState(null); const [fx, setFx] = useState("");
   const load = () => periodId && api(`/payroll/${periodId}`).then((d) => { setData(d); setFx(String(d.fx_rate)); }).catch((e) => setErr(e.message));
   useEffect(() => { setData(null); setMsg(""); load(); }, [periodId]);
+  // Payouts still waiting at PayPal get their latest status when the period is opened
+  const pending = (data?.items || []).some((i) => i.paypal_batch_id && !DONE.includes(i.payout_status));
+  useEffect(() => {
+    if (data?.paypal?.configured && pending) api(`/payroll/${data.period.period_id}/paypal/refresh`, { method: "POST" }).then((r) => r.updated && load()).catch(() => {});
+  }, [data?.period?.period_id]);
   const act = async (what) => {
     if (what === "approve" && !window.confirm("Approve and lock this payroll? It can no longer be changed after approval.")) return;
+    if (what === "pay") {
+      const list = (data?.items || []).filter(payable);
+      const tot = {}; for (const i of list) tot[i.currency] = (tot[i.currency] || 0) + Number(i.net_pay);
+      if (!window.confirm(`Send ${Object.entries(tot).map(([c, v]) => money(v, c)).join(" + ")} through PayPal${data.paypal.env === "sandbox" ? " (sandbox – test money)" : ""} to ${list.length} employee${list.length > 1 ? "s" : ""}?\n\n` +
+        list.map((i) => `${i.full_name} – ${money(i.net_pay, i.currency)} → ${i.email}`).join("\n"))) return;
+    }
     setBusy(what); setErr(""); setMsg("");
     try {
       if (what === "compute") { const r = await api(`/payroll/${periodId}/compute`, { method: "POST", body: { fx_rate: data?.has_usd ? Number(fx) : undefined } }); setMsg(`${r.sync ? `Hours synced from ${r.sync.mode === "clockify" ? "Clockify" : "sample data"} (${r.sync.synced} entries). ` : ""}Payroll computed for ${r.employees} employees. ${user.role === "owner" ? "Review it, then approve." : "The Business Owner can now review and approve it."}`); }
+      else if (what === "pay") {
+        const r = await api(`/payroll/${periodId}/paypal`, { method: "POST" });
+        setMsg(`PayPal${r.env === "sandbox" ? " sandbox" : ""} payout sent to ${r.sent} employee${r.sent > 1 ? "s" : ""} (${Object.entries(r.totals).map(([c, v]) => money(v, c)).join(" + ")}). PayPal emails each employee; the status turns “Paid” once they receive it.`);
+      }
+      else if (what === "refresh") { const r = await api(`/payroll/${periodId}/paypal/refresh`, { method: "POST" }); setMsg(r.updated ? `Updated the PayPal status of ${r.updated} payment${r.updated > 1 ? "s" : ""}.` : "No change in the PayPal status."); }
       else { await api(`/payroll/${periodId}/approve`, { method: "POST" }); setMsg("Payroll approved and locked."); }
       await load(); await reload(true);
     } catch (e) { setErr(e.message); } finally { setBusy(""); }
@@ -41,6 +74,8 @@ export default function Payroll({ user }) {
   const p = data?.period; const items = data?.items || [];
   const fxError = data?.has_usd ? checkNumber(fx, { label: "USD → CAD rate", min: 0.5, max: 5, decimals: 4 }) : "";
   const sum = (k) => items.reduce((a, i) => a + Number(i[k]), 0);
+  const toPay = items.filter(payable).length;
+  const canPay = p?.status === "approved" && user.role === "owner" && data?.paypal?.configured;
   return (
     <>
       <PageHeader title="Payroll" subtitle="Compute gets the latest hours from Clockify, applies the pay rules, then the Owner approves.">
@@ -52,6 +87,8 @@ export default function Payroll({ user }) {
             {fxError && <span id="err-fx" className="fx-error" role="alert">{fxError}</span>}</label>
         )}
         {p && p.status !== "approved" && <button className="btn dark" onClick={() => act("compute")} disabled={!!busy || !!fxError} title={fxError || undefined}><Icon name="calc" /> {busy === "compute" ? "Syncing & computing…" : p.status === "computed" ? "Recompute" : "Compute payroll"}</button>}
+        {canPay && toPay > 0 && <button className="btn primary" onClick={() => act("pay")} disabled={!!busy}><Icon name="wallet" /> {busy === "pay" ? "Sending…" : `Pay with PayPal (${toPay})`}</button>}
+        {p?.status === "approved" && data?.paypal?.configured && pending && <button className="btn dark" onClick={() => act("refresh")} disabled={!!busy}><Icon name="sync" /> {busy === "refresh" ? "Checking…" : "Refresh PayPal status"}</button>}
         {p && p.status === "computed" && user.role === "owner" && <button className="btn primary" onClick={() => act("approve")} disabled={!!busy}><Icon name="check" /> {busy === "approve" ? "Approving…" : "Approve payroll"}</button>}
       </PageHeader>
       <Alert>{err}</Alert><Alert kind="success">{msg}</Alert>
@@ -67,22 +104,25 @@ export default function Payroll({ user }) {
         </div>
       )}
       {p?.status === "computed" && user.role !== "owner" && <Alert kind="info">Waiting for the Business Owner to approve this payroll.</Alert>}
-      {p?.status === "approved" && <Alert kind="info"><Icon name="lock" size={14} /> Approved and locked. Payslips keep the amounts and the pay rule used.</Alert>}
+      {p?.status === "approved" && <Alert kind="info"><Icon name="lock" size={14} /> Approved and locked. Payslips keep the amounts and the pay rule used.
+        {data?.paypal?.configured ? (toPay ? ` ${user.role === "owner" ? "Click “Pay with PayPal” to send" : "The Business Owner can send"} each employee's net pay to their email through PayPal${data.paypal.env === "sandbox" ? " (sandbox)" : ""}.` : "")
+          : " To pay employees by email, connect PayPal (PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET on the server)."}</Alert>}
       <section className="card flush">
         {data && !items.length ? <Empty>No payroll computed for this period yet. Click “Compute payroll” – it gets the hours from Clockify automatically.</Empty> : (
           <div className="table-wrap"><table>
-            <colgroup><col /><col style={{ width: "8%" }} /><col style={{ width: "8%" }} /><col style={{ width: "11%" }} /><col style={{ width: "10%" }} /><col style={{ width: "9%" }} /><col style={{ width: "12%" }} /><col style={{ width: "12%" }} /><col style={{ width: "90px" }} /></colgroup>
-            <thead><tr><th>Employee</th><th className="num">Reg. hrs</th><th className="num">OT hrs</th><th className="num">Gross</th><th className="num">CPP</th><th className="num">EI</th><th className="num">Net pay</th><th className="num">Net (CAD)</th><th /></tr></thead>
-            {!data ? <SkRows rows={8} cols={["two", "num", "num", "num", "num", "num", "num", "num", "text"]} /> : <tbody>{items.map((i) => (
+            <colgroup><col /><col style={{ width: "8%" }} /><col style={{ width: "8%" }} /><col style={{ width: "11%" }} /><col style={{ width: "10%" }} /><col style={{ width: "9%" }} /><col style={{ width: "12%" }} /><col style={{ width: "12%" }} /><col style={{ width: "100px" }} /><col style={{ width: "90px" }} /></colgroup>
+            <thead><tr><th>Employee</th><th className="num">Reg. hrs</th><th className="num">OT hrs</th><th className="num">Gross</th><th className="num">CPP</th><th className="num">EI</th><th className="num">Net pay</th><th className="num">Net (CAD)</th><th>PayPal</th><th /></tr></thead>
+            {!data ? <SkRows rows={8} cols={["two", "num", "num", "num", "num", "num", "num", "num", "text", "text"]} /> : <tbody>{items.map((i) => (
               <tr key={i.payroll_id} className="click" onClick={() => setSlip(i)}>
                 <td><strong>{i.full_name}</strong><div className="tiny muted">{i.employment_type} · {i.currency}</div></td>
                 <td className="num">{hrs(i.regular_hours)}</td><td className="num">{hrs(i.overtime_hours)}</td>
                 <td className="num">{money(i.gross_pay, i.currency)}</td><td className="num">{money(i.cpp_deduction, i.currency)}</td><td className="num">{money(i.ei_deduction, i.currency)}</td>
                 <td className="num"><strong>{money(i.net_pay, i.currency)}</strong></td><td className="num">{money(i.net_pay_cad)}</td>
+                <td><Payout i={i} /></td>
                 <td><span className="link">Payslip</span></td>
               </tr>))}
             </tbody>}
-            {data && <tfoot><tr><td>Total</td><td className="num">{hrs(sum("regular_hours"))}</td><td className="num">{hrs(sum("overtime_hours"))}</td><td colSpan="4" /><td className="num">{money(sum("net_pay_cad"))}</td><td /></tr></tfoot>}
+            {data && <tfoot><tr><td>Total</td><td className="num">{hrs(sum("regular_hours"))}</td><td className="num">{hrs(sum("overtime_hours"))}</td><td colSpan="4" /><td className="num">{money(sum("net_pay_cad"))}</td><td colSpan="2" /></tr></tfoot>}
           </table></div>
         )}
       </section>
