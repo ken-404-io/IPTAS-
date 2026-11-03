@@ -21,3 +21,14 @@ test("PayPal errors are explained", () => {
   assert.match(errorMessage(422, { name: "INSUFFICIENT_FUNDS" }), /enough balance/);
   assert.match(errorMessage(400, { name: "VALIDATION_ERROR", message: "Invalid request", details: [{ issue: "x", description: "Bad email" }] }), /Bad email/);
 });
+
+test("payment email has the amount and the Received link", () => {
+  const { paymentEmail } = require("../mailer");
+  const m = paymentEmail({ company: "Northern Goods Co.", name: "Ana <Cruz>", period: { start_date: "2026-11-01", end_date: "2026-11-15" },
+    row: { net_pay: 1234.5, currency: "CAD", email: "ana@example.com", regular_hours: 60, overtime_hours: 2, gross_pay: 1400, cpp_deduction: 80, ei_deduction: 23 },
+    receiptUrl: "https://iptas.example/api/receipt/abc", paypalUrl: "https://www.sandbox.paypal.com/myaccount/summary" });
+  assert.match(m.subject, /C\$1,234\.50/);
+  assert.match(m.html, /href="https:\/\/iptas\.example\/api\/receipt\/abc"[^>]*>Received</);
+  assert.match(m.html, /Ana &lt;Cruz&gt;/);
+  assert.match(m.text, /receipt\/abc/);
+});

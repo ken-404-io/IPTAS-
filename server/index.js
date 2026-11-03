@@ -11,6 +11,8 @@ const { computePay, dailyTotals } = require("./payroll");
 const { verifyGoogleToken, GoogleAuthError } = require("./google");
 const { config } = require("./config");
 const paypal = require("./paypal");
+const mailer = require("./mailer");
+const crypto = require("crypto");
 const { syncTimeLogs, testConnection, getApiKey, getTimezone, demoModeOn, ClockifyError, SOURCE_SQL } = require("./timetracker");
 
 const app = express();
@@ -386,10 +388,11 @@ app.get("/api/payroll/:periodId", auth, wrap(async (req, res) => {
        FROM payroll pr JOIN employees e ON e.employee_id=pr.employee_id
        LEFT JOIN users cu ON cu.user_id=pr.computed_by LEFT JOIN users au ON au.user_id=pr.approved_by
       WHERE pr.period_id=$1 ORDER BY e.full_name`, [p.period_id]);
+  for (const r of rows) delete r.receipt_token;
   const rule = rows[0] ? (await db.query("SELECT * FROM pay_rules WHERE rule_id=$1", [rows[0].rule_id])).rows[0] : await ruleFor(p.end_date);
   const usd = (await db.query("SELECT 1 FROM employees WHERE status='active' AND currency='USD' LIMIT 1")).rowCount > 0;
   res.json({ period: p, rule, items: rows, company: config.companyName(), fx_rate: await currentFx(), has_usd: usd,
-    paypal: { configured: paypal.configured(), env: config.paypalEnv() } });
+    paypal: { configured: paypal.configured(), env: config.paypalEnv() }, email: { configured: mailer.configured() } });
 }));
 
 app.post("/api/payroll/:periodId/compute", auth, wrap(async (req, res) => {
@@ -479,6 +482,35 @@ async function refreshPayouts(periodId) {
   return updated;
 }
 
+// Emails each employee in the list that their pay was sent, with a "Received" button (a one-time link).
+// Only the SHA-256 of the link's token is stored. Returns { sent, failed: [messages] }.
+const hashToken = (t) => crypto.createHash("sha256").update(t).digest("hex");
+const appUrl = (req) => config.appUrl() || `${req.protocol}://${req.get("host")}`;
+async function emailPayouts(req, period, payrollIds) {
+  const out = { sent: 0, failed: [] };
+  if (!mailer.configured() || !payrollIds.length) return out;
+  const rows = (await db.query(
+    `SELECT pr.*, e.full_name, e.email FROM payroll pr JOIN employees e ON e.employee_id=pr.employee_id
+      WHERE pr.payroll_id = ANY($1) AND pr.period_id=$2 AND pr.received_at IS NULL AND pr.paypal_batch_id IS NOT NULL
+        AND (pr.payout_status IS NULL OR NOT (pr.payout_status = ANY($3)))`, [payrollIds, period.period_id, paypal.RETRYABLE])).rows;
+  const paypalUrl = config.paypalEnv() === "live" ? "https://www.paypal.com/myaccount/summary" : "https://www.sandbox.paypal.com/myaccount/summary";
+  for (const r of rows) {
+    const token = crypto.randomBytes(32).toString("hex");
+    await db.query("UPDATE payroll SET receipt_token=$1 WHERE payroll_id=$2", [hashToken(token), r.payroll_id]);
+    const mail = mailer.paymentEmail({ company: config.companyName(), name: r.full_name, period, row: r,
+      receiptUrl: `${appUrl(req)}/api/receipt/${token}`, paypalUrl });
+    try {
+      await mailer.sendMail({ to: r.email, toName: r.full_name, ...mail });
+      await db.query("UPDATE payroll SET emailed_at=NOW(), email_error=NULL WHERE payroll_id=$1", [r.payroll_id]);
+      out.sent++;
+    } catch (e) {
+      await db.query("UPDATE payroll SET email_error=$1 WHERE payroll_id=$2", [e.message, r.payroll_id]);
+      out.failed.push(e.message);
+    }
+  }
+  return out;
+}
+
 // Sends the approved net pay of everyone not paid yet (or whose last payout failed) to their email through PayPal
 app.post("/api/payroll/:periodId/paypal", auth, ownerOnly, wrap(async (req, res) => {
   const p = (await db.query("SELECT * FROM pay_periods WHERE period_id=$1", [req.params.periodId])).rows[0];
@@ -503,11 +535,57 @@ app.post("/api/payroll/:periodId/paypal", auth, ownerOnly, wrap(async (req, res)
   }
   await db.query("UPDATE payroll SET paypal_batch_id=$1, payout_status='PENDING', paid_at=NOW() WHERE payroll_id = ANY($2)", [batchId, ids]);
   try { await refreshPayouts(p.period_id); } catch { /* the status can be refreshed later */ }
+  const email = await emailPayouts(req, p, ids);
   const totals = {};
   for (const r of rows) totals[r.currency] = Math.round(((totals[r.currency] || 0) + Number(r.net_pay)) * 100) / 100;
   await audit(req.user.user_id, "PAYPAL_PAYOUT", "payroll", p.period_id, null,
     { period: `${p.start_date} to ${p.end_date}`, employees: rows.length, totals, batch_id: batchId, env: config.paypalEnv() });
-  res.json({ ok: true, sent: rows.length, totals, batch_id: batchId, env: config.paypalEnv() });
+  res.json({ ok: true, sent: rows.length, totals, batch_id: batchId, env: config.paypalEnv(), email: { configured: mailer.configured(), ...email } });
+}));
+
+// Emails again everyone whose payout was sent but who has not clicked "Received" yet (a new link replaces the old one)
+app.post("/api/payroll/:periodId/email", auth, ownerOnly, wrap(async (req, res) => {
+  const p = (await db.query("SELECT * FROM pay_periods WHERE period_id=$1", [req.params.periodId])).rows[0];
+  if (!p) return res.status(404).json({ error: "Pay period not found." });
+  if (!mailer.configured()) return bad(res, "Email is not set up. Set BREVO_API_KEY and EMAIL_FROM on the server.");
+  const ids = (await db.query("SELECT payroll_id FROM payroll WHERE period_id=$1", [p.period_id])).rows.map((r) => r.payroll_id);
+  const r = await emailPayouts(req, p, ids);
+  if (!r.sent && !r.failed.length) return bad(res, "Nobody is waiting to confirm a payment in this period.");
+  await audit(req.user.user_id, "EMAIL_PAYSLIPS", "payroll", p.period_id, null, { period: `${p.start_date} to ${p.end_date}`, sent: r.sent, failed: r.failed.length });
+  if (!r.sent) return res.status(502).json({ error: r.failed[0] });
+  res.json({ ok: true, ...r });
+}));
+
+// "Received" link in the payment email. GET only shows a confirm button (mail scanners open links on their own),
+// POST records that the employee received the money.
+function receiptPage(title, body) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${mailer.esc(title)}</title>
+<style>body{margin:0;background:#f4f4f4;font-family:Arial,sans-serif;color:#222}.c{max-width:460px;margin:40px auto;background:#fff;border-radius:12px;padding:28px 24px;text-align:center}
+h1{font-size:22px;margin:8px 0 12px}p{color:#555;line-height:1.5}b{color:#222}button{background:#C8213A;color:#fff;border:0;border-radius:8px;padding:14px 28px;font-size:16px;font-weight:bold;cursor:pointer}
+.brand{color:#C8213A;font-weight:bold}</style></head><body><div class="c"><div class="brand">${mailer.esc(config.companyName())}</div>${body}</div></body></html>`;
+}
+async function receiptRow(token) {
+  if (!/^[a-f0-9]{64}$/.test(token)) return null;
+  return (await db.query(
+    `SELECT pr.*, e.full_name, p.start_date, p.end_date FROM payroll pr JOIN employees e ON e.employee_id=pr.employee_id
+       JOIN pay_periods p ON p.period_id=pr.period_id WHERE pr.receipt_token=$1`, [hashToken(token)])).rows[0] || null;
+}
+const receiptLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
+app.get("/api/receipt/:token", receiptLimiter, wrap(async (req, res) => {
+  const r = await receiptRow(req.params.token);
+  if (!r) return res.status(404).send(receiptPage("Link not valid", "<h1>This link is not valid</h1><p>It may have been replaced by a newer email. Use the link in the latest payment email.</p>"));
+  const amt = mailer.esc(mailer.fmt(r.net_pay, r.currency)), per = mailer.esc(`${r.start_date} to ${r.end_date}`);
+  if (r.received_at) return res.send(receiptPage("Already confirmed", `<h1>Already confirmed ✓</h1><p>You confirmed receiving <b>${amt}</b> for ${per} on ${mailer.esc(new Date(r.received_at).toLocaleString("en-CA", { timeZone: config.timezone() }))}.</p>`));
+  res.send(receiptPage("Confirm payment", `<h1>Did you receive your pay?</h1><p>${mailer.esc(r.full_name)}, confirm that <b>${amt}</b> for the pay period <b>${per}</b> is in your PayPal account.</p>
+<form method="post"><button type="submit">Received</button></form>`));
+}));
+app.post("/api/receipt/:token", receiptLimiter, wrap(async (req, res) => {
+  const r = await receiptRow(req.params.token);
+  if (!r) return res.status(404).send(receiptPage("Link not valid", "<h1>This link is not valid</h1><p>Use the link in the latest payment email.</p>"));
+  const u = await db.query("UPDATE payroll SET received_at=NOW() WHERE payroll_id=$1 AND received_at IS NULL", [r.payroll_id]);
+  if (u.rowCount) await audit(null, "PAYMENT_RECEIVED", "payroll", r.payroll_id, null,
+    { employee: r.full_name, period: `${r.start_date} to ${r.end_date}`, net_pay: Number(r.net_pay), currency: r.currency, paypal_status: r.payout_status });
+  res.send(receiptPage("Thank you", `<h1>Thank you! ✓</h1><p>Your payment of <b>${mailer.esc(mailer.fmt(r.net_pay, r.currency))}</b> is now marked as <b>Paid</b>.</p>`));
 }));
 
 app.post("/api/payroll/:periodId/paypal/refresh", auth, wrap(async (req, res) => {
@@ -589,6 +667,7 @@ app.get("/api/settings", auth, ownerOnly, wrap(async (req, res) => {
     fx_rate: await currentFx(), demo_mode: await demoModeOn(), sample_data: sample,
     clockify_connected: !!key, clockify_key_hint: key ? "••••" + key.slice(-4) : "", google_sign_in: !!config.googleClientId(),
     paypal: paypal.configured() ? config.paypalEnv() : "",
+    email: mailer.configured() ? `${mailer.provider() === "brevo" ? "Brevo" : "Resend"} · ${config.emailFrom()}` : "",
   });
 }));
 

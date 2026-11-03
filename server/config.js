@@ -18,6 +18,12 @@ const config = {
   // PayPal Payouts (pay employees by email). Sandbox unless PAYPAL_ENV=live.
   paypalClientId: () => (process.env.PAYPAL_CLIENT_ID || "").trim(),
   paypalSecret: () => (process.env.PAYPAL_CLIENT_SECRET || "").trim(),
+  // Email to employees (Brevo or Resend API key, and the sender address verified there)
+  brevoKey: () => (process.env.BREVO_API_KEY || "").trim(),
+  resendKey: () => (process.env.RESEND_API_KEY || "").trim(),
+  emailFrom: () => (process.env.EMAIL_FROM || "").trim(),
+  // Public address of the app, used in email links (default: the address the request came in on)
+  appUrl: () => (process.env.APP_URL || "").trim().replace(/\/$/, ""),
   paypalEnv: () => ((process.env.PAYPAL_ENV || "").trim().toLowerCase() === "live" ? "live" : "sandbox"),
 };
 
