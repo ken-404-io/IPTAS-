@@ -2,7 +2,8 @@
 
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
-const WORKDAYS_PER_PERIOD = 10; // a two-week pay period has 10 working days (Mon-Fri)
+// Semi-monthly pay periods (24 a year) average 260 weekdays / 24 = 10.83 working days (Mon-Fri)
+const WORKDAYS_PER_PERIOD = 260 / 24;
 
 /**
  * Daily overtime: on each day, the first `threshold` hours (6 by default) are regular and the rest is overtime.
@@ -35,7 +36,7 @@ const hasCanadianDeductions = (employee) => employee.currency === "CAD";
  * rule:     { overtime_threshold (hours per day), overtime_multiplier, cpp_rate, ei_rate }
  * fxRate:   USD to CAD rate used for this payroll (only applied to USD employees)
  * For fixed employees, pay_rate is the amount per pay period; overtime (if eligible) is paid at
- * the equivalent hourly rate = pay_rate / (threshold hours x 10 working days).
+ * the equivalent hourly rate = pay_rate / (threshold hours x 10.83 working days per semi-monthly period).
  */
 function computePay(employee, logs, rule, fxRate = 1) {
   const threshold = Number(rule.overtime_threshold);
